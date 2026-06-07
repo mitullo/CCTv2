@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CCT Game</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="container">
+<h1>Cognitive Control Training</h1>
+<p class="subtitle">Auditory paced addition training</p>
+
+<div id="sessionView" class="session-view hidden">
+  <div class="session-metrics">
+    <div class="metric">
+      <span>Current Interval</span>
+      <strong><span id="currentInterval">1000</span> ms</strong>
+    </div>
+    <div class="metric">
+      <span id="sessionLimitLabel">Time Left</span>
+      <strong><span id="timeLeft">0</span><span id="sessionLimitSuffix">s</span></strong>
+    </div>
+  </div>
+
+  <div id="feedback"></div>
+  <input class="answer-input" type="number" id="answer" placeholder="Enter answer" disabled>
+  <button id="endSessionBtn" class="secondary-button danger-button" type="button">End Session</button>
+
+  <div id="intervalStats"></div>
+</div>
+
+<div id="resultsView" class="results-view hidden">
+  <h2>Results</h2>
+  <div class="results-grid">
+    <div class="result-metric">
+      <span>Accuracy</span>
+      <strong id="resultAccuracy">0%</strong>
+    </div>
+    <div class="result-metric">
+      <span>Average Response Time</span>
+      <strong id="resultAverageResponse">0 ms</strong>
+    </div>
+    <div class="result-metric">
+      <span>Total Session Duration</span>
+      <strong id="resultDuration">0s</strong>
+    </div>
+    <div class="result-metric">
+      <span>Correct Answers</span>
+      <strong id="resultCorrect">0</strong>
+    </div>
+    <div class="result-metric">
+      <span>Total Questions Asked</span>
+      <strong id="resultQuestions">0</strong>
+    </div>
+  </div>
+  <button id="newSessionBtn" class="primary-button" type="button">New Session</button>
+</div>
+
+<div id="settingsView">
+  <div class="settings">
+    <label class="toggle-field advanced-master-toggle">
+      <input type="checkbox" id="showAdvancedSettingsToggle">
+      Show Advanced Settings
+    </label>
+
+    <section class="settings-section">
+      <div class="section-header">General</div>
+      <label class="toggle-field"><input type="checkbox" id="beepToggle" checked> Beep on error</label>
+      <label class="toggle-field"><input type="checkbox" id="themeToggle"> Dark mode</label>
+      <div class="subsection-title">Audio</div>
+      <label class="field">
+        <span>Voice</span>
+        <select id="voiceSelect">
+          <option value="female1">Female 1</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Playback speed <strong id="playbackSpeedValue">1x</strong></span>
+        <input type="range" id="playbackSpeedSelect" min="1" max="1.5" step="0.1" value="1">
+      </label>
+    </section>
+
+    <section class="settings-section">
+      <div class="section-header">Session Behavior</div>
+      <label class="field">
+        <span>Session end mode</span>
+        <select id="endCondition">
+          <option value="timer">Timer-based</option>
+          <option value="correct">Correct-answer-based</option>
+        </select>
+      </label>
+      <label class="field child-field" id="durationField">
+        <span>Timer duration (minutes)</span>
+        <input type="number" id="duration" value="1" min="1">
+      </label>
+      <label class="field child-field locked" id="targetCorrectField">
+        <span>Target correct answers</span>
+        <input type="number" id="targetCorrect" value="50" min="1" disabled>
+      </label>
+      <label class="field mode-field advanced-only hidden" id="modeField">
+        <span>Arithmetic mode <strong class="advanced-badge">Advanced</strong></span>
+        <select id="modeSelect">
+          <option value="addition">Addition (A + B)</option>
+          <option value="multiplication">Multiplication (A * B)</option>
+          <option value="subtraction">Subtraction (signed) (A - B)</option>
+          <option value="difference">Difference (absolute) (abs(A - B))</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="settings-section">
+      <div class="section-header">Interval Settings</div>
+      <label class="field">
+        <span>Starting Interval (ms)</span>
+        <input type="number" id="startingInterval" value="1500" min="200" max="1500" step="100">
+      </label>
+      <div id="advancedSettingsPanel" class="advanced-settings hidden">
+        <label class="field">
+          <span>Minimum Interval (ms)</span>
+          <input type="number" id="minimumInterval" value="700" min="100" max="1500" step="100">
+        </label>
+        <label class="field">
+          <span>Interval Increment <strong id="intervalIncrementValue">100</strong></span>
+          <input type="range" id="intervalIncrement" min="10" max="100" step="10" value="100">
+        </label>
+      </div>
+    </section>
+
+    <div id="advancedSections" class="advanced-sections hidden">
+      <section class="settings-section">
+        <div class="section-header">
+          <span>Threshold Settings</span>
+          <span class="threshold-help">
+            <button
+              id="thresholdInfoBtn"
+              class="icon-button info-button"
+              type="button"
+              aria-expanded="false"
+              aria-label="Thresholds help"
+            >i</button>
+            <span class="tooltip-box" role="tooltip">Thresholds control how strict scoring is. Presets are shortcuts for common settings.</span>
+          </span>
+        </div>
+        <div class="section-note">Balanced and Strict presets set both thresholds together.</div>
+        <label class="field">
+          <span>Correct threshold <strong id="correctThresholdValue">4</strong></span>
+          <input type="range" id="correctThreshold" min="1" max="10" step="1" value="4">
+        </label>
+        <label class="field">
+          <span>Incorrect threshold <strong id="incorrectThresholdValue">4</strong></span>
+          <input type="range" id="incorrectThreshold" min="1" max="10" step="1" value="4">
+        </label>
+        <div class="preset-row">
+          <button id="normalThresholdPresetBtn" class="secondary-button" type="button">Balanced</button>
+          <button id="highAccuracyPresetBtn" class="secondary-button" type="button">Strict</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="section-header">Timing Display</div>
+        <label class="toggle-field"><input type="checkbox" id="showIntervalTimingToggle"> Show interval timing data</label>
+      </section>
+    </div>
+  </div>
+
+  <button id="startBtn" class="primary-button">Start</button>
+  <div class="settings-reset-zone">
+    <button id="resetSettingsBtn" class="secondary-button danger-button settings-reset-button" type="button">Reset Settings to Default</button>
+  </div>
+</div>
+</div>
+<div id="footerView" class="footer">
+<p>Thanks to EEE for supplying the original source code</p>
+<a href="https://discord.gg/brain">Mindbuilding Discord</a>
+</div>
+<script src="audio/voices.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
