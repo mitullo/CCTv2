@@ -358,7 +358,11 @@ function applyHistoryFilters(sessions,filters=historyFilters){
 
 function getMostRecentHistoryMode(sessions){
   const latestSession=Array.isArray(sessions)
-    ? [...sessions].find(session=>ARITHMETIC_MODES.has(session.arithmeticMode))
+    ? sessions.reduce((latest,session)=>{
+      if(!ARITHMETIC_MODES.has(session?.arithmeticMode)) return latest;
+      if(!latest) return session;
+      return (Number(session.endedAt)||0) > (Number(latest.endedAt)||0) ? session : latest;
+    },null)
     : null;
   return latestSession ? latestSession.arithmeticMode : defaultSettings.mode;
 }
@@ -611,10 +615,16 @@ const sessionHistoryStore=(()=>{
 
   async function saveSession(record){
     const normalized=normalizeHistoryRecord(record);
+    const previousSession=await getStoredSessionById(normalized.sessionId);
+    const previousDelta=previousSession ? getSessionTotalsDelta(previousSession) : null;
+    const nextDelta=getSessionTotalsDelta(normalized);
     if(!supportsIndexedDB){
       const index=fallbackSessions.findIndex(item=>item.sessionId===normalized.sessionId);
       if(index>=0) fallbackSessions[index]=normalized; else fallbackSessions.unshift(normalized);
-      fallbackTotals=addTotals(fallbackTotals,getSessionTotalsDelta(normalized));
+      if(previousDelta){
+        fallbackTotals=subtractTotals(fallbackTotals,previousDelta);
+      }
+      fallbackTotals=addTotals(fallbackTotals,nextDelta);
       persistBackupSnapshot();
       return normalized;
     }
@@ -622,7 +632,8 @@ const sessionHistoryStore=(()=>{
     try{
       const db=await openDb();
       const currentTotals=await readStoredTotals();
-      const updatedTotals=addTotals(currentTotals,getSessionTotalsDelta(normalized));
+      const adjustedTotals=previousDelta ? subtractTotals(currentTotals,previousDelta) : currentTotals;
+      const updatedTotals=addTotals(adjustedTotals,nextDelta);
       const tx=db.transaction([STORE_NAME,TOTALS_STORE_NAME],"readwrite");
       tx.objectStore(STORE_NAME).put(normalized);
       tx.objectStore(TOTALS_STORE_NAME).put(updatedTotals);
@@ -630,9 +641,32 @@ const sessionHistoryStore=(()=>{
     }catch(e){}
     const index=fallbackSessions.findIndex(item=>item.sessionId===normalized.sessionId);
     if(index>=0) fallbackSessions[index]=normalized; else fallbackSessions.unshift(normalized);
-    fallbackTotals=addTotals(fallbackTotals,getSessionTotalsDelta(normalized));
+    if(previousDelta){
+      fallbackTotals=subtractTotals(fallbackTotals,previousDelta);
+    }
+    fallbackTotals=addTotals(fallbackTotals,nextDelta);
     persistBackupSnapshot();
     return normalized;
+  }
+
+  async function getStoredSessionById(sessionId){
+    if(!sessionId) return null;
+    if(hasBackupSnapshot || !supportsIndexedDB){
+      return fallbackSessions.find(session=>session.sessionId===sessionId) || null;
+    }
+
+    try{
+      const db=await openDb();
+      const tx=db.transaction(STORE_NAME,"readonly");
+      const request=tx.objectStore(STORE_NAME).get(sessionId);
+      const session=await new Promise((resolve,reject)=>{
+        request.onsuccess=()=>resolve(request.result || null);
+        request.onerror=()=>reject(request.error || new Error("Failed to read session"));
+      });
+      return session ? normalizeHistoryRecord(session) : null;
+    }catch(e){
+      return fallbackSessions.find(session=>session.sessionId===sessionId) || null;
+    }
   }
 
   async function saveLatestTrace(record){
