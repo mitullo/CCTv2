@@ -53,8 +53,135 @@
       <span>Total Questions Asked</span>
       <strong id="resultQuestions">0</strong>
     </div>
+    <div class="result-metric">
+      <span>Session Status</span>
+      <strong id="resultStatus">Completed</strong>
+    </div>
+  </div>
+  <div id="resultsIntervalStatsWrap" class="results-interval-stats hidden">
+    <h3>Interval Timing</h3>
+    <div id="resultsIntervalStats"></div>
   </div>
   <button id="newSessionBtn" class="primary-button" type="button">New Session</button>
+</div>
+
+<div id="historyView" class="history-view hidden">
+  <div class="history-header">
+    <h2>Session History</h2>
+    <div class="history-actions">
+      <button id="backFromHistoryBtn" class="secondary-button" type="button">Back</button>
+      <button id="exportHistoryBtn" class="secondary-button" type="button">Export JSON</button>
+      <button id="importHistoryBtn" class="secondary-button" type="button">Import JSON</button>
+      <input id="importHistoryInput" class="hidden" type="file" accept="application/json,.json">
+    </div>
+  </div>
+
+  <div class="history-summary">
+    <div class="history-stat">
+      <span>Total Completed Sessions</span>
+      <strong id="historyCompletedSessions">0</strong>
+    </div>
+    <div class="history-stat">
+      <span>Total Correct Answers</span>
+      <strong id="historyCorrectAnswers">0</strong>
+    </div>
+    <div class="history-stat">
+      <span>Total Duration Trained</span>
+      <strong id="historyDurationTrained">0s</strong>
+    </div>
+  </div>
+
+  <div id="historyAnalytics" class="history-analytics">
+    <div class="section-header">Progress Charts</div>
+    <div class="history-chart-controls">
+      <label class="field history-chart-mode-field">
+        <span>Mode</span>
+        <select id="historyChartModeSelect">
+          <option value="addition">Addition</option>
+          <option value="multiplication">Multiplication</option>
+          <option value="subtraction">Subtraction (signed)</option>
+          <option value="difference">Difference (absolute)</option>
+        </select>
+      </label>
+      <div id="historyChartModeNote" class="history-chart-mode-note">Charts show one arithmetic mode at a time.</div>
+    </div>
+    <div class="analytics-grid">
+      <section class="chart-card">
+        <div class="chart-card-header">
+          <h3>Accuracy Trend</h3>
+        </div>
+        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Accuracy per session</span></div>
+        <div id="accuracyTrendChart" class="chart-panel"></div>
+        <div id="accuracyTrendDetails" class="chart-details" aria-live="polite" hidden>Hover, tap, or click a point to inspect it.</div>
+        <p class="chart-caption">Upward trends mean accuracy is improving over time.</p>
+      </section>
+      <section class="chart-card">
+        <div class="chart-card-header">
+          <h3>Response Time Trend</h3>
+        </div>
+        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Average response time per session</span></div>
+        <div id="responseTimeTrendChart" class="chart-panel"></div>
+        <div id="responseTimeTrendDetails" class="chart-details" aria-live="polite" hidden>Hover, tap, or click a point to inspect it.</div>
+        <p class="chart-caption">Lower values mean faster responses.</p>
+      </section>
+      <section class="chart-card chart-card-wide">
+        <div class="chart-card-header">
+          <h3>Latest Session Interval &amp; Response Time</h3>
+          <button id="latestIntervalBackBtn" class="secondary-button chart-back-button hidden" type="button">Back to Overview</button>
+        </div>
+        <div class="chart-legend chart-legend-multi">
+          <span class="chart-legend-item"><span class="chart-legend-swatch chart-legend-swatch-interval"></span><span>Interval</span></span>
+          <span class="chart-legend-item"><span class="chart-legend-swatch chart-legend-swatch-response"></span><span>Response time</span></span>
+        </div>
+        <div id="latestIntervalChart" class="chart-panel"></div>
+        <div id="latestIntervalDetails" class="chart-details" aria-live="polite" hidden>Hover, tap, or click a point to inspect it.</div>
+        <p id="latestIntervalCaption" class="chart-caption">Hover, tap, or click a point to inspect exact values.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="history-section">
+    <div class="history-section-header">
+      <div class="section-header">Recent Sessions</div>
+      <div class="history-filter-anchor">
+        <button id="historyFilterBtn" class="icon-square-button" type="button" aria-expanded="false" aria-label="Filter recent sessions">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4 6h16M7 12h10M10 18h4" />
+          </svg>
+          <span id="historyFilterCountBadge" class="icon-badge hidden">0</span>
+        </button>
+        <div id="historyFiltersPanel" class="history-filters hidden">
+          <label class="field history-filter-field">
+            <span>Session Status</span>
+            <select id="historyStatusFilter">
+              <option value="all">All</option>
+              <option value="Completed">Completed</option>
+              <option value="Manually exited">Manually Exited</option>
+            </select>
+          </label>
+          <label class="field history-filter-field">
+            <span>Arithmetic Mode</span>
+            <select id="historyModeFilter">
+              <option value="all">All</option>
+              <option value="addition">Addition</option>
+              <option value="multiplication">Multiplication</option>
+              <option value="subtraction">Subtraction (signed)</option>
+              <option value="difference">Difference (absolute)</option>
+            </select>
+          </label>
+          <div class="history-filter-actions">
+            <button id="resetHistoryFiltersBtn" class="secondary-button" type="button">Reset Filters</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="recentSessionsList" class="history-list"></div>
+    <div class="history-reset-zone">
+      <div class="history-reset-note">Deletes saved history in this browser.</div>
+      <button id="clearSessionsOnlyBtn" class="secondary-button danger-button" type="button">Clear Sessions, Keep Totals</button>
+      <button id="clearAllHistoryBtn" class="secondary-button danger-button" type="button">Clear All History</button>
+    </div>
+  </div>
 </div>
 
 <div id="settingsView">
@@ -69,11 +196,14 @@
       <label class="toggle-field"><input type="checkbox" id="beepToggle" checked> Beep on error</label>
       <label class="toggle-field"><input type="checkbox" id="themeToggle"> Dark mode</label>
       <div class="subsection-title">Audio</div>
-      <label class="field">
+      <label class="field voice-field">
         <span>Voice</span>
-        <select id="voiceSelect">
-          <option value="female1">Female 1</option>
-        </select>
+        <div class="voice-control-group">
+          <select id="voiceSelect">
+            <option value="female1">female1</option>
+          </select>
+          <button id="voiceTestBtn" class="secondary-button voice-test-button" type="button">Test Voice</button>
+        </div>
       </label>
       <label class="field">
         <span>Playback speed <strong id="playbackSpeedValue">1x</strong></span>
@@ -167,6 +297,9 @@
   <button id="startBtn" class="primary-button">Start</button>
   <div class="settings-reset-zone">
     <button id="resetSettingsBtn" class="secondary-button danger-button settings-reset-button" type="button">Reset Settings to Default</button>
+  </div>
+  <div class="settings-history-zone">
+    <button id="historyBtn" class="secondary-button" type="button">Session History</button>
   </div>
 </div>
 </div>
