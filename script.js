@@ -21,7 +21,7 @@ const defaultSettings={
   incorrectThreshold:"4",
   duration:"15",
   endCondition:"timer",
-  targetCorrect:"50",
+  targetCorrect:"500",
   mode:"addition",
   voice:"female1",
   playbackSpeed:"1",
