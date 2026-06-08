@@ -1,14 +1,14 @@
 window.CCT_VOICE_LIBRARY={
-  female1:{
-    basePath:"audio/female1"
-  },
-  female2:{
-    basePath:"audio/female2"
+  samantha:{
+    basePath:"audio/samantha"
   },
   nathan:{
     basePath:"audio/nathan"
   },
   enhancednathan:{
     basePath:"audio/enhancednathan"
+  },
+  siri4:{
+    basePath:"audio/siri4"
   }
 };

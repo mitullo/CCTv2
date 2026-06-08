@@ -34,7 +34,7 @@ const defaultSettings={
   endCondition:"timer",
   targetCorrect:"500",
   mode:"addition",
-  voice:"female1",
+  voice:"samantha",
   playbackSpeed:"1",
   beepEnabled:true,
   darkMode:false,
@@ -2383,8 +2383,10 @@ async function discoverVoices(){
   mergeVoiceEntries(discovered,window.CCT_VOICE_LIBRARY);
 
   if(!Object.keys(discovered).length){
-    discovered.female1={ label:"female1", basePath:"audio/female1" };
-    discovered.female2={ label:"female2", basePath:"audio/female2" };
+    discovered.samantha={ label:"samantha", basePath:"audio/samantha" };
+    discovered.nathan={ label:"nathan", basePath:"audio/nathan" };
+    discovered.enhancednathan={ label:"enhancednathan", basePath:"audio/enhancednathan" };
+    discovered.siri4={ label:"siri4", basePath:"audio/siri4" };
   }
 
   voiceLibrary=discovered;
@@ -2408,7 +2410,7 @@ function populateVoiceSelect(){
   });
 
   if(!voices.some(([voiceKey])=>voiceKey===selectedVoice)){
-    selectedVoice=voices[0]?.[0] || "female1";
+    selectedVoice=voices[0]?.[0] || "samantha";
   }
   voiceSelect.value=selectedVoice;
 }
@@ -2419,7 +2421,7 @@ function getClockTime(){
 
 function getVoiceConfig(voiceKey){
   const fallbackKey=Object.keys(voiceLibrary)[0];
-  return voiceLibrary[voiceKey] || voiceLibrary[fallbackKey] || { label:"Voice", basePath:"audio/female1" };
+  return voiceLibrary[voiceKey] || voiceLibrary[fallbackKey] || { label:"samantha", basePath:"audio/samantha" };
 }
 
 function getVoiceClipUrl(voiceKey,num){
