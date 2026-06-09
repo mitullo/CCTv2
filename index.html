@@ -65,15 +65,15 @@
   <button id="newSessionBtn" class="primary-button" type="button">New Session</button>
 </div>
 
-<div id="historyView" class="history-view hidden">
+  <div id="historyView" class="history-view hidden">
   <div class="history-header">
-    <h2>Session History</h2>
-    <div class="history-actions">
-      <button id="backFromHistoryBtn" class="secondary-button" type="button">Back</button>
-      <button id="exportHistoryBtn" class="secondary-button" type="button">Export JSON</button>
-      <button id="importHistoryBtn" class="secondary-button" type="button">Import JSON</button>
-      <input id="importHistoryInput" class="hidden" type="file" accept="application/json,.json">
-    </div>
+    <button id="backFromHistoryBtn" class="icon-square-button history-back-button" type="button" aria-label="Back to home" title="Back to home">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M15 6l-6 6 6 6" />
+        <path d="M10 12h9" />
+      </svg>
+    </button>
+    <h2>Training History</h2>
   </div>
 
   <div class="history-summary">
@@ -91,8 +91,22 @@
     </div>
   </div>
 
+  <div class="history-utility-actions">
+    <button id="exportHistoryBtn" class="secondary-button history-json-button" type="button">Export JSON</button>
+    <button id="importHistoryBtn" class="secondary-button history-json-button" type="button">Import JSON</button>
+    <input id="importHistoryInput" class="hidden" type="file" accept="application/json,.json">
+  </div>
+
   <div id="historyAnalytics" class="history-analytics">
-    <div class="section-header">Progress Charts</div>
+    <div class="history-analytics-header">
+      <div class="section-header">Training Summary &amp; Trends</div>
+      <button id="refreshTrendChartsBtn" class="icon-square-button history-refresh-icon" type="button" aria-label="Refresh trend charts" title="Refresh trend charts">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4" />
+          <path d="M6 16H5v3m13-3h1v-3" />
+        </svg>
+      </button>
+    </div>
     <div class="history-chart-controls">
       <label class="field history-chart-mode-field">
         <span>Mode</span>
@@ -110,19 +124,17 @@
         <div class="chart-card-header">
           <h3>Accuracy Trend</h3>
         </div>
-        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Accuracy per session</span></div>
+        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Average accuracy per day</span></div>
         <div id="accuracyTrendChart" class="chart-panel"></div>
         <div id="accuracyTrendDetails" class="chart-details" aria-live="polite" hidden>Hover, tap, or click a point to inspect it.</div>
-        <p class="chart-caption">Upward trends mean accuracy is improving over time.</p>
       </section>
       <section class="chart-card">
         <div class="chart-card-header">
           <h3>Response Time Trend</h3>
         </div>
-        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Average response time per session</span></div>
+        <div class="chart-legend"><span class="chart-legend-swatch"></span><span>Average response time per day</span></div>
         <div id="responseTimeTrendChart" class="chart-panel"></div>
         <div id="responseTimeTrendDetails" class="chart-details" aria-live="polite" hidden>Hover, tap, or click a point to inspect it.</div>
-        <p class="chart-caption">Lower values mean faster responses.</p>
       </section>
       <section class="chart-card chart-card-wide">
         <div class="chart-card-header">
@@ -142,40 +154,66 @@
 
   <div class="history-section">
     <div class="history-section-header">
-      <div class="section-header">Recent Sessions</div>
-      <div class="history-filter-anchor">
-        <button id="historyFilterBtn" class="icon-square-button" type="button" aria-expanded="false" aria-label="Filter recent sessions">
+      <div class="section-header">Session History</div>
+      <div class="history-section-actions">
+        <button id="refreshSessionsBtn" class="icon-square-button history-refresh-icon" type="button" aria-label="Refresh session history" title="Refresh session history">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M4 6h16M7 12h10M10 18h4" />
+            <path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4" />
+            <path d="M6 16H5v3m13-3h1v-3" />
           </svg>
-          <span id="historyFilterCountBadge" class="icon-badge hidden">0</span>
         </button>
-        <div id="historyFiltersPanel" class="history-filters hidden">
-          <label class="field history-filter-field">
-            <span>Session Status</span>
-            <select id="historyStatusFilter">
-              <option value="all">All</option>
-              <option value="Completed">Completed</option>
-              <option value="Manually exited">Manually Exited</option>
-            </select>
-          </label>
-          <label class="field history-filter-field">
-            <span>Arithmetic Mode</span>
-            <select id="historyModeFilter">
-              <option value="all">All</option>
-              <option value="addition">Addition</option>
-              <option value="multiplication">Multiplication</option>
-              <option value="subtraction">Subtraction (signed)</option>
-              <option value="difference">Difference (absolute)</option>
-            </select>
-          </label>
-          <div class="history-filter-actions">
-            <button id="resetHistoryFiltersBtn" class="secondary-button" type="button">Reset Filters</button>
+        <div class="history-filter-anchor">
+          <button id="historyFilterBtn" class="icon-square-button" type="button" aria-expanded="false" aria-label="Filter session history">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 6h16M7 12h10M10 18h4" />
+            </svg>
+            <span id="historyFilterCountBadge" class="icon-badge hidden">0</span>
+          </button>
+          <div id="historyFiltersPanel" class="history-filters hidden">
+            <label class="field history-filter-field">
+              <span>Session Status</span>
+              <select id="historyStatusFilter">
+                <option value="all">All</option>
+                <option value="Completed">Completed</option>
+                <option value="Manually exited">Manually Exited</option>
+              </select>
+            </label>
+            <label class="field history-filter-field">
+              <span>Arithmetic Mode</span>
+              <select id="historyModeFilter">
+                <option value="all">All</option>
+                <option value="addition">Addition</option>
+                <option value="multiplication">Multiplication</option>
+                <option value="subtraction">Subtraction (signed)</option>
+                <option value="difference">Difference (absolute)</option>
+              </select>
+            </label>
+            <label class="field history-filter-field">
+              <span>Trend Inclusion</span>
+              <select id="historyTrendFilter">
+                <option value="all">All</option>
+                <option value="included">Included in trends</option>
+                <option value="excluded">Excluded from trends</option>
+              </select>
+            </label>
+            <div class="history-filter-actions">
+              <button id="resetHistoryFiltersBtn" class="secondary-button" type="button">Reset Filters</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
     <div id="recentSessionsList" class="history-list"></div>
+    <div class="history-pagination">
+      <div id="historyPaginationSummary" class="history-pagination-summary" aria-live="polite">Showing 0 sessions</div>
+      <div class="history-pagination-controls">
+        <div id="historyPaginationIndicator" class="history-pagination-indicator">Page 0 of 0</div>
+        <div class="history-pagination-buttons">
+          <button id="historyPrevPageBtn" class="secondary-button history-pagination-button" type="button">← Previous</button>
+          <button id="historyNextPageBtn" class="secondary-button history-pagination-button" type="button">Next →</button>
+        </div>
+      </div>
+    </div>
     <div class="history-reset-zone">
       <div class="history-reset-note">Deletes saved history in this browser.</div>
       <button id="clearSessionsOnlyBtn" class="secondary-button danger-button" type="button">Clear Sessions, Keep Totals</button>
@@ -299,13 +337,12 @@
     <button id="resetSettingsBtn" class="secondary-button danger-button settings-reset-button" type="button">Reset Settings to Default</button>
   </div>
   <div class="settings-history-zone">
-    <button id="historyBtn" class="secondary-button" type="button">Session History</button>
+    <button id="historyBtn" class="secondary-button" type="button">Training History</button>
   </div>
 </div>
 </div>
 <div id="footerView" class="footer">
 <p>Thanks to EEE for supplying the original source code</p>
-<a href="https://discord.gg/brain">Mindbuilding Discord</a>
 </div>
 <script src="audio/voices.js"></script>
 <script src="script.js"></script>

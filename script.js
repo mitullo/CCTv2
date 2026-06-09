@@ -18,9 +18,20 @@ let historyFilterVisible=false;
 let sessionIntervalTrace=[];
 let historyChartMode=null;
 let historyChartModeIsUserSelected=false;
+let historyPageIndex=0;
+let historyTrendRefreshToken=0;
+let historySessionRefreshToken=0;
+let historyTrendUpdateChain=Promise.resolve();
+const HISTORY_PAGE_SIZE=20;
 const historyFilters={
   status:"all",
-  mode:"all"
+  mode:"all",
+  trendInclusion:"all"
+};
+const EMPTY_HISTORY_STATS={
+  completedSessions:0,
+  totalCorrectAnswers:0,
+  totalDurationMs:0
 };
 const SETTINGS_KEY="cctSettings";
 const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference"]);
@@ -42,7 +53,6 @@ const defaultSettings={
   showIntervalTiming:false
 };
 
-// NEW: live time tracking
 let intervalCounts={}, intervalTime={}, currentIntervalStart=0;
 let feedbackIndicatorColor=null, feedbackIndicatorCount=0;
 let showIntervalTiming=false;
@@ -57,6 +67,14 @@ function clampInteger(value,fallback,min,max){
   const parsed=parseInt(value,10);
   if(Number.isNaN(parsed)) return fallback;
   return Math.max(min,Math.min(max,parsed));
+}
+
+function parsePositiveInteger(value,fallback,min=1){
+  return Math.max(min,parseInt(value,10)||parseInt(fallback,10));
+}
+
+function coercePositiveNumber(value,fallback,min=1){
+  return Math.max(min,Number(value)||Number(fallback)||min);
 }
 
 function normalizeSavedSettings(parsed){
@@ -109,6 +127,16 @@ function updateAppViews(){
   endSessionBtn.disabled=!sessionVisible;
 }
 
+function hideHistoryFilters(){
+  historyFilterVisible=false;
+  if(historyFiltersPanel){
+    historyFiltersPanel.classList.add("hidden");
+  }
+  if(historyFilterBtn){
+    historyFilterBtn.setAttribute("aria-expanded","false");
+  }
+}
+
 function setSessionState(nextState){
   sessionState=nextState;
   if(nextState!=="idle"){
@@ -119,24 +147,9 @@ function setSessionState(nextState){
 
 function setHistoryVisible(isVisible){
   historyVisible=isVisible;
+  hideHistoryFilters();
   if(isVisible){
     sessionState="idle";
-    historyFilterVisible=false;
-    if(historyFiltersPanel){
-      historyFiltersPanel.classList.add("hidden");
-    }
-    if(historyFilterBtn){
-      historyFilterBtn.setAttribute("aria-expanded","false");
-    }
-  }
-  if(!isVisible){
-    historyFilterVisible=false;
-    if(historyFiltersPanel){
-      historyFiltersPanel.classList.add("hidden");
-    }
-    if(historyFilterBtn){
-      historyFilterBtn.setAttribute("aria-expanded","false");
-    }
   }
   updateAppViews();
 }
@@ -202,9 +215,8 @@ function updateThresholdLabels(){
 }
 
 function getIndicatorSlotCount(){
-  const correctThreshold=Math.max(1,parseInt(correctThresholdInput.value)||parseInt(defaultSettings.correctThreshold));
-  const incorrectThreshold=Math.max(1,parseInt(incorrectThresholdInput.value)||parseInt(defaultSettings.incorrectThreshold));
-  return Math.max(correctThreshold,incorrectThreshold);
+  const thresholds=getThresholds();
+  return Math.max(thresholds.correct,thresholds.incorrect);
 }
 
 function applyArithmeticMode(mode){
@@ -336,6 +348,14 @@ const HISTORY_FILTER_DEFS={
     matches(session,value){
       return value==="all" || (session.arithmeticMode || defaultSettings.mode)===value;
     }
+  },
+  trendInclusion:{
+    defaultValue:"all",
+    values:new Set(["all","included","excluded"]),
+    matches(session,value){
+      if(value==="all") return true;
+      return value==="included" ? session.includeInTrends===true : session.includeInTrends===false;
+    }
   }
 };
 
@@ -347,24 +367,15 @@ function getActiveHistoryFilterCount(){
 }
 
 function applyHistoryFilters(sessions,filters=historyFilters){
-  return sessions.filter(session=>{
-    return Object.entries(filters).every(([key,value])=>{
-      const def=HISTORY_FILTER_DEFS[key];
-      if(!def) return true;
-      return def.matches(session,value);
-    });
-  });
+  return sessions.filter(session=>matchesHistoryFilters(session,filters));
 }
 
-function getMostRecentHistoryMode(sessions){
-  const latestSession=Array.isArray(sessions)
-    ? sessions.reduce((latest,session)=>{
-      if(!ARITHMETIC_MODES.has(session?.arithmeticMode)) return latest;
-      if(!latest) return session;
-      return (Number(session.endedAt)||0) > (Number(latest.endedAt)||0) ? session : latest;
-    },null)
-    : null;
-  return latestSession ? latestSession.arithmeticMode : defaultSettings.mode;
+function matchesHistoryFilters(session,filters=historyFilters){
+  return Object.entries(filters).every(([key,value])=>{
+    const def=HISTORY_FILTER_DEFS[key];
+    if(!def) return true;
+    return def.matches(session,value);
+  });
 }
 
 function setHistoryChartMode(mode){
@@ -376,27 +387,25 @@ function setHistoryChartMode(mode){
   }
 }
 
-function ensureHistoryChartMode(sessions){
-  const fallbackMode=getMostRecentHistoryMode(sessions);
+function ensureHistoryChartMode(fallbackMode){
+  const resolvedFallback=ARITHMETIC_MODES.has(fallbackMode) ? fallbackMode : defaultSettings.mode;
   if(!historyChartModeIsUserSelected || !ARITHMETIC_MODES.has(historyChartMode)){
-    historyChartMode=fallbackMode;
+    historyChartMode=resolvedFallback;
   }
+  const resolvedMode=ARITHMETIC_MODES.has(historyChartMode) ? historyChartMode : resolvedFallback;
   if(historyChartModeSelect){
-    historyChartModeSelect.value=historyChartMode || fallbackMode;
+    historyChartModeSelect.value=resolvedMode;
   }
   if(historyChartModeNote){
-    historyChartModeNote.textContent=`Charts show ${formatArithmeticModeLabel(historyChartMode || fallbackMode)} sessions only.`;
+    historyChartModeNote.textContent=`Charts show ${formatArithmeticModeLabel(resolvedMode)} sessions only.`;
   }
-  return historyChartMode || fallbackMode;
-}
-
-function getHistoryChartSessions(sessions,mode){
-  return sessions.filter(session=>(session.arithmeticMode || defaultSettings.mode)===mode);
+  return resolvedMode;
 }
 
 function syncHistoryFilterControls(){
   historyStatusFilter.value=historyFilters.status;
   historyModeFilter.value=historyFilters.mode;
+  historyTrendFilter.value=historyFilters.trendInclusion;
   historyFilterBtn.setAttribute("aria-expanded",String(historyFilterVisible));
   const activeFilterCount=getActiveHistoryFilterCount();
   if(historyFilterCountBadge){
@@ -408,7 +417,9 @@ function syncHistoryFilterControls(){
 function setHistoryFilterValue(key,value){
   if(!(key in historyFilters)) return;
   const def=HISTORY_FILTER_DEFS[key];
-  historyFilters[key]=def && def.values && def.values.has(value) ? value : def.defaultValue;
+  const nextValue=def && def.values && def.values.has(value) ? value : def.defaultValue;
+  historyFilters[key]=nextValue;
+  historyPageIndex=0;
   syncHistoryFilterControls();
 }
 
@@ -416,7 +427,33 @@ function resetHistoryFilters(){
   Object.entries(HISTORY_FILTER_DEFS).forEach(([key,def])=>{
     historyFilters[key]=def.defaultValue;
   });
+  historyPageIndex=0;
   syncHistoryFilterControls();
+}
+
+function setHistoryPageIndex(pageIndex){
+  historyPageIndex=Math.max(0,Math.floor(Number(pageIndex)||0));
+}
+
+function createEmptyHistoryPageData(){
+  return {
+    sessions:[],
+    totalSessions:0,
+    pageIndex:0,
+    pageCount:0,
+    pageSize:HISTORY_PAGE_SIZE,
+    visibleStart:0,
+    visibleEnd:0,
+    hasPrevious:false,
+    hasNext:false
+  };
+}
+
+function createEmptyTrendData(){
+  return {
+    accuracyPoints:[],
+    responsePoints:[]
+  };
 }
 
 function toggleHistoryFiltersVisible(forceVisible){
@@ -450,6 +487,10 @@ function formatArithmeticModeLabel(mode){
   }
 }
 
+function getDefaultTrendInclusion(status){
+  return status==="Manually exited" ? false : true;
+}
+
 function generateSessionId(){
   if(window.crypto && typeof window.crypto.randomUUID==="function"){
     return window.crypto.randomUUID();
@@ -475,9 +516,16 @@ function normalizeHistoryRecord(record){
   const rawCorrectThreshold=record?.correctThreshold ?? record?.thresholds?.correct;
   const rawIncorrectThreshold=record?.incorrectThreshold ?? record?.thresholds?.incorrect;
   const rawMode=record?.arithmeticMode ?? record?.mode;
+  const status=record?.status==="Manually exited" ? "Manually exited" : "Completed";
+  const correctThreshold=coercePositiveNumber(rawCorrectThreshold,defaultSettings.correctThreshold);
+  const incorrectThreshold=coercePositiveNumber(rawIncorrectThreshold,defaultSettings.incorrectThreshold);
   const accuracy=Number.isFinite(record?.accuracy)
     ? Number(record.accuracy)
     : (totalQuestionsAsked?correctAnswers/totalQuestionsAsked*100:0);
+  const rawIncludeInTrends=record?.includeInTrends;
+  const includeInTrends=typeof rawIncludeInTrends==="boolean"
+    ? rawIncludeInTrends
+    : getDefaultTrendInclusion(status);
 
   return {
     ...record,
@@ -485,7 +533,7 @@ function normalizeHistoryRecord(record){
     sessionId:record?.sessionId || generateSessionId(),
     startedAt,
     endedAt,
-    status:record?.status==="Manually exited" ? "Manually exited" : "Completed",
+    status,
     arithmeticMode:ARITHMETIC_MODES.has(rawMode) ? rawMode : defaultSettings.mode,
     endCondition:record?.endCondition || defaultSettings.endCondition,
     durationMs:Number.isFinite(durationMs) ? Math.max(0,durationMs) : Math.max(0,endedAt-startedAt),
@@ -493,16 +541,17 @@ function normalizeHistoryRecord(record){
     correctAnswers,
     totalQuestionsAsked,
     averageResponseTimeMs,
-    correctThreshold:Math.max(1,Number(rawCorrectThreshold)||parseInt(defaultSettings.correctThreshold)),
-    incorrectThreshold:Math.max(1,Number(rawIncorrectThreshold)||parseInt(defaultSettings.incorrectThreshold)),
+    correctThreshold,
+    incorrectThreshold,
     startingInterval:Math.max(100,Number(record?.startingInterval)||parseInt(defaultSettings.startingInterval)),
     minimumInterval:Math.max(100,Number(record?.minimumInterval)||parseInt(defaultSettings.minimumInterval)),
     intervalIncrement:Math.max(10,Number(record?.intervalIncrement)||parseInt(defaultSettings.intervalIncrement)),
     voice:record?.voice || defaultSettings.voice,
     playbackSpeed:Math.max(1,Math.min(1.5,Number(record?.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed))),
+    includeInTrends,
     thresholds:{
-      correct:Math.max(1,Number(rawCorrectThreshold)||parseInt(defaultSettings.correctThreshold)),
-      incorrect:Math.max(1,Number(rawIncorrectThreshold)||parseInt(defaultSettings.incorrectThreshold))
+      correct:correctThreshold,
+      incorrect:incorrectThreshold
     }
   };
 }
@@ -535,10 +584,11 @@ function normalizeLatestTraceRecord(record){
 
 const sessionHistoryStore=(()=>{
   const DB_NAME="cct-session-history";
-  const DB_VERSION=3;
+  const DB_VERSION=4;
   const STORE_NAME="sessions";
   const TRACE_STORE_NAME="latestTrace";
   const TOTALS_STORE_NAME="historyTotals";
+  const ENDED_AT_INDEX_NAME="endedAt";
   const fallbackSessions=[];
   let fallbackLatestTrace=null;
   let fallbackTotals={
@@ -548,6 +598,7 @@ const sessionHistoryStore=(()=>{
   };
   const HISTORY_BACKUP_KEY="cct-session-history-backup";
   let hasBackupSnapshot=false;
+  let backupMigrationPromise=null;
   let dbPromise=null;
   const supportsIndexedDB=typeof window.indexedDB!=="undefined";
 
@@ -576,7 +627,6 @@ const sessionHistoryStore=(()=>{
         historyTotals:normalizeTotalsRecord(fallbackTotals)
       };
       window.localStorage.setItem(HISTORY_BACKUP_KEY,JSON.stringify(snapshot));
-      hasBackupSnapshot=true;
     }catch(e){}
   }
 
@@ -585,7 +635,41 @@ const sessionHistoryStore=(()=>{
     fallbackSessions.push(...initialBackup.sessions);
     fallbackLatestTrace=initialBackup.latestTrace;
     fallbackTotals=initialBackup.totals;
-    hasBackupSnapshot=true;
+    hasBackupSnapshot=!supportsIndexedDB;
+  }
+
+  async function migrateBackupSnapshotToIndexedDb(){
+    if(!supportsIndexedDB || !hasBackupSnapshot) return;
+    if(backupMigrationPromise) return backupMigrationPromise;
+
+    backupMigrationPromise=(async()=>{
+      try{
+        const db=await openDb();
+        const tx=db.transaction([STORE_NAME,TRACE_STORE_NAME,TOTALS_STORE_NAME],"readwrite");
+        const sessionStore=tx.objectStore(STORE_NAME);
+        fallbackSessions.forEach(session=>{
+          sessionStore.put(normalizeHistoryRecord(session));
+        });
+        if(fallbackLatestTrace){
+          tx.objectStore(TRACE_STORE_NAME).put(normalizeLatestTraceRecord(fallbackLatestTrace));
+        }
+        tx.objectStore(TOTALS_STORE_NAME).put(normalizeTotalsRecord(fallbackTotals));
+        await txDone(tx);
+        hasBackupSnapshot=false;
+      }catch(e){}
+      backupMigrationPromise=null;
+    })();
+
+    return backupMigrationPromise;
+  }
+
+  function upsertFallbackSession(session){
+    const index=fallbackSessions.findIndex(item=>item.sessionId===session.sessionId);
+    if(index>=0){
+      fallbackSessions[index]=session;
+    }else{
+      fallbackSessions.unshift(session);
+    }
   }
 
   async function openDb(){
@@ -598,6 +682,10 @@ const sessionHistoryStore=(()=>{
         const db=request.result;
         if(!db.objectStoreNames.contains(STORE_NAME)){
           db.createObjectStore(STORE_NAME,{ keyPath:"sessionId" });
+        }
+        const sessionStore=request.transaction.objectStore(STORE_NAME);
+        if(!sessionStore.indexNames.contains(ENDED_AT_INDEX_NAME)){
+          sessionStore.createIndex(ENDED_AT_INDEX_NAME,"endedAt",{ unique:false });
         }
         if(!db.objectStoreNames.contains(TRACE_STORE_NAME)){
           db.createObjectStore(TRACE_STORE_NAME,{ keyPath:"id" });
@@ -619,8 +707,7 @@ const sessionHistoryStore=(()=>{
     const previousDelta=previousSession ? getSessionTotalsDelta(previousSession) : null;
     const nextDelta=getSessionTotalsDelta(normalized);
     if(!supportsIndexedDB){
-      const index=fallbackSessions.findIndex(item=>item.sessionId===normalized.sessionId);
-      if(index>=0) fallbackSessions[index]=normalized; else fallbackSessions.unshift(normalized);
+      upsertFallbackSession(normalized);
       if(previousDelta){
         fallbackTotals=subtractTotals(fallbackTotals,previousDelta);
       }
@@ -639,8 +726,7 @@ const sessionHistoryStore=(()=>{
       tx.objectStore(TOTALS_STORE_NAME).put(updatedTotals);
       await txDone(tx);
     }catch(e){}
-    const index=fallbackSessions.findIndex(item=>item.sessionId===normalized.sessionId);
-    if(index>=0) fallbackSessions[index]=normalized; else fallbackSessions.unshift(normalized);
+    upsertFallbackSession(normalized);
     if(previousDelta){
       fallbackTotals=subtractTotals(fallbackTotals,previousDelta);
     }
@@ -651,7 +737,12 @@ const sessionHistoryStore=(()=>{
 
   async function getStoredSessionById(sessionId){
     if(!sessionId) return null;
-    if(hasBackupSnapshot || !supportsIndexedDB){
+    if(!supportsIndexedDB){
+      return fallbackSessions.find(session=>session.sessionId===sessionId) || null;
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
       return fallbackSessions.find(session=>session.sessionId===sessionId) || null;
     }
 
@@ -666,6 +757,195 @@ const sessionHistoryStore=(()=>{
       return session ? normalizeHistoryRecord(session) : null;
     }catch(e){
       return fallbackSessions.find(session=>session.sessionId===sessionId) || null;
+    }
+  }
+
+  function getSortedFallbackSessions(){
+    return fallbackSessions
+      .map(normalizeHistoryRecord)
+      .sort((a,b)=>Number(b.endedAt||0)-Number(a.endedAt||0));
+  }
+
+  function buildPagedSessionResult(sessions,pageIndex,pageSize){
+    const totalSessions=sessions.length;
+    const pageCount=totalSessions ? Math.ceil(totalSessions/pageSize) : 0;
+    const resolvedPageIndex=pageCount ? Math.min(pageIndex,pageCount-1) : 0;
+    const startIndex=pageCount ? resolvedPageIndex*pageSize : 0;
+    const pageSessions=pageCount ? sessions.slice(startIndex,startIndex+pageSize) : [];
+    const visibleStart=pageSessions.length ? startIndex + 1 : 0;
+    const visibleEnd=pageSessions.length ? startIndex + pageSessions.length : 0;
+
+    return {
+      sessions:pageSessions,
+      totalSessions,
+      pageIndex:resolvedPageIndex,
+      pageCount,
+      pageSize,
+      visibleStart,
+      visibleEnd,
+      hasPrevious:resolvedPageIndex>0,
+      hasNext:pageCount>0 && resolvedPageIndex<pageCount-1
+    };
+  }
+
+  async function getSessionPage({ filters=historyFilters, pageIndex=0, pageSize=HISTORY_PAGE_SIZE }={}){
+    const safePageSize=Math.max(1,Math.floor(Number(pageSize)||HISTORY_PAGE_SIZE));
+    const requestedPageIndex=Math.max(0,Math.floor(Number(pageIndex)||0));
+
+    if(!supportsIndexedDB){
+      const filtered=applyHistoryFilters(getSortedFallbackSessions(),filters);
+      return buildPagedSessionResult(filtered,requestedPageIndex,safePageSize);
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
+      const filtered=applyHistoryFilters(getSortedFallbackSessions(),filters);
+      return buildPagedSessionResult(filtered,requestedPageIndex,safePageSize);
+    }
+
+    const readPagedSessions=async(pageIndexToUse)=>{
+      const db=await openDb();
+      const tx=db.transaction(STORE_NAME,"readonly");
+      const source=tx.objectStore(STORE_NAME).index(ENDED_AT_INDEX_NAME);
+      const pageStart=pageIndexToUse*safePageSize;
+      const pageSessions=[];
+      let totalSessions=0;
+
+      await new Promise((resolve,reject)=>{
+        const request=source.openCursor(null,"prev");
+        request.onsuccess=()=>{
+          const cursor=request.result;
+          if(!cursor){
+            resolve();
+            return;
+          }
+
+          const session=normalizeHistoryRecord(cursor.value);
+          if(matchesHistoryFilters(session,filters)){
+            if(totalSessions>=pageStart && pageSessions.length<safePageSize){
+              pageSessions.push(session);
+            }
+            totalSessions++;
+          }
+          cursor.continue();
+        };
+        request.onerror=()=>reject(request.error || new Error("Failed to read sessions"));
+      });
+
+      const pageCount=totalSessions ? Math.ceil(totalSessions/safePageSize) : 0;
+      const visibleStart=pageSessions.length ? pageStart + 1 : 0;
+      const visibleEnd=pageSessions.length ? pageStart + pageSessions.length : 0;
+
+      return {
+        sessions:pageSessions,
+        totalSessions,
+        pageIndex:pageIndexToUse,
+        pageCount,
+        pageSize:safePageSize,
+        visibleStart,
+        visibleEnd,
+        hasPrevious:pageIndexToUse>0,
+        hasNext:pageCount>0 && pageIndexToUse<pageCount-1
+      };
+    };
+
+    try{
+      const initialResult=await readPagedSessions(requestedPageIndex);
+      if(initialResult.pageCount && initialResult.pageIndex>initialResult.pageCount-1){
+        return readPagedSessions(initialResult.pageCount-1);
+      }
+      return initialResult;
+    }catch(e){
+      const filtered=applyHistoryFilters(getSortedFallbackSessions(),filters);
+      return buildPagedSessionResult(filtered,requestedPageIndex,safePageSize);
+    }
+  }
+
+  async function getMostRecentHistoryMode(){
+    if(!supportsIndexedDB){
+      const latestSession=getSortedFallbackSessions().find(session=>ARITHMETIC_MODES.has(session?.arithmeticMode));
+      return latestSession ? latestSession.arithmeticMode : defaultSettings.mode;
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
+      const latestSession=getSortedFallbackSessions().find(session=>ARITHMETIC_MODES.has(session?.arithmeticMode));
+      return latestSession ? latestSession.arithmeticMode : defaultSettings.mode;
+    }
+
+    try{
+      const db=await openDb();
+      const tx=db.transaction(STORE_NAME,"readonly");
+      const source=tx.objectStore(STORE_NAME).index(ENDED_AT_INDEX_NAME);
+      const latestSession=await new Promise((resolve,reject)=>{
+        const request=source.openCursor(null,"prev");
+        request.onsuccess=()=>{
+          const cursor=request.result;
+          if(!cursor){
+            resolve(null);
+            return;
+          }
+          resolve(normalizeHistoryRecord(cursor.value));
+        };
+        request.onerror=()=>reject(request.error || new Error("Failed to read most recent session"));
+      });
+      return latestSession && ARITHMETIC_MODES.has(latestSession.arithmeticMode)
+        ? latestSession.arithmeticMode
+        : defaultSettings.mode;
+    }catch(e){
+      const latestSession=getSortedFallbackSessions().find(session=>ARITHMETIC_MODES.has(session?.arithmeticMode));
+      return latestSession ? latestSession.arithmeticMode : defaultSettings.mode;
+    }
+  }
+
+  async function getTrendData(mode){
+    const resolvedMode=ARITHMETIC_MODES.has(mode) ? mode : defaultSettings.mode;
+    if(!supportsIndexedDB){
+      return buildTrendDataForSessions(getSortedFallbackSessions(),resolvedMode);
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
+      return buildTrendDataForSessions(getSortedFallbackSessions(),resolvedMode);
+    }
+
+    try{
+      const db=await openDb();
+      const tx=db.transaction(STORE_NAME,"readonly");
+      const source=tx.objectStore(STORE_NAME).index(ENDED_AT_INDEX_NAME);
+      const accuracyBuckets=new Map();
+      const responseBuckets=new Map();
+
+      await new Promise((resolve,reject)=>{
+        const request=source.openCursor(null,"prev");
+        request.onsuccess=()=>{
+          const cursor=request.result;
+          if(!cursor){
+            resolve();
+            return;
+          }
+
+          const session=normalizeHistoryRecord(cursor.value);
+          if(!isTrendEligibleSession(session) || !isSessionInMode(session,resolvedMode)){
+            cursor.continue();
+            return;
+          }
+
+          const weight=Math.max(1,Number(session.totalQuestionsAsked)||0);
+          addDailyTrendBucket(accuracyBuckets,session,session.accuracy,weight);
+          addDailyTrendBucket(responseBuckets,session,session.averageResponseTimeMs,weight);
+
+          cursor.continue();
+        };
+        request.onerror=()=>reject(request.error || new Error("Failed to read trend data"));
+      });
+
+      const accuracyPoints=finalizeDailyTrendBuckets(accuracyBuckets);
+      const responsePoints=finalizeDailyTrendBuckets(responseBuckets);
+
+      return { accuracyPoints, responsePoints, mode:resolvedMode };
+    }catch(e){
+      return buildTrendDataForSessions(getSortedFallbackSessions(),resolvedMode);
     }
   }
 
@@ -739,7 +1019,12 @@ const sessionHistoryStore=(()=>{
   }
 
   async function readStoredTotals(){
-    if(hasBackupSnapshot || !supportsIndexedDB){
+    if(!supportsIndexedDB){
+      return normalizeTotalsRecord(fallbackTotals);
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
       return normalizeTotalsRecord(fallbackTotals);
     }
 
@@ -778,21 +1063,19 @@ const sessionHistoryStore=(()=>{
     return normalized;
   }
 
-  async function updateStoredTotalsWithSession(session){
-    const current=await readStoredTotals();
-    return writeStoredTotals(addTotals(current,getSessionTotalsDelta(session)));
-  }
-
   async function replaceStoredTotalsWithSessions(sessions){
     const totals=sessions.reduce((acc,session)=>addTotals(acc,getSessionTotalsDelta(session)),createEmptyTotals());
     return writeStoredTotals(totals);
   }
 
   async function getAllSessions(){
-    if(hasBackupSnapshot || !supportsIndexedDB){
-      return fallbackSessions
-        .map(normalizeHistoryRecord)
-        .sort((a,b)=>b.endedAt-a.endedAt);
+    if(!supportsIndexedDB){
+      return getSortedFallbackSessions();
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
+      return getSortedFallbackSessions();
     }
 
     try{
@@ -810,14 +1093,17 @@ const sessionHistoryStore=(()=>{
       }
       return sessions.map(normalizeHistoryRecord).sort((a,b)=>b.endedAt-a.endedAt);
     }catch(e){
-      return fallbackSessions
-        .map(normalizeHistoryRecord)
-        .sort((a,b)=>b.endedAt-a.endedAt);
+      return getSortedFallbackSessions();
     }
   }
 
   async function getLatestTrace(){
-    if(hasBackupSnapshot || !supportsIndexedDB){
+    if(!supportsIndexedDB){
+      return fallbackLatestTrace ? normalizeLatestTraceRecord(fallbackLatestTrace) : null;
+    }
+
+    await migrateBackupSnapshotToIndexedDb();
+    if(hasBackupSnapshot){
       return fallbackLatestTrace ? normalizeLatestTraceRecord(fallbackLatestTrace) : null;
     }
 
@@ -893,8 +1179,7 @@ const sessionHistoryStore=(()=>{
     if(!supportsIndexedDB){
       const existingSessions=new Map(fallbackSessions.map(session=>[session.sessionId,session]));
       sessions.forEach(session=>{
-        const index=fallbackSessions.findIndex(item=>item.sessionId===session.sessionId);
-        if(index>=0) fallbackSessions[index]=session; else fallbackSessions.unshift(session);
+        upsertFallbackSession(session);
         existingSessions.set(session.sessionId,session);
       });
       if(latestTrace) fallbackLatestTrace=latestTrace;
@@ -963,14 +1248,12 @@ const sessionHistoryStore=(()=>{
   }
 
   async function getStats(){
-    const sessions=await getAllSessions();
     const historyTotals=await readStoredTotals();
 
     return {
       completedSessions:historyTotals.completedSessions,
       totalCorrectAnswers:historyTotals.totalCorrectAnswers,
-      totalDurationMs:historyTotals.totalDurationMs,
-      sessions
+      totalDurationMs:historyTotals.totalDurationMs
     };
   }
 
@@ -979,6 +1262,9 @@ const sessionHistoryStore=(()=>{
     saveLatestTrace,
     getAllSessions,
     getLatestTrace,
+    getMostRecentHistoryMode,
+    getSessionPage,
+    getTrendData,
     clearAll,
     clearSessionsOnly,
     importData,
@@ -991,6 +1277,7 @@ function buildSessionRecord(){
   const totalItems=feedback.length;
   const totalResponseTime=responseTimes.reduce((sum,time)=>sum+time,0);
   const totalQuestionsAsked=Math.max(0,totalItems-(excludeLastQuestionFromCount?1:0));
+  const thresholds=getThresholds();
 
   return normalizeHistoryRecord({
     sessionId:currentSessionId || generateSessionId(),
@@ -1004,13 +1291,14 @@ function buildSessionRecord(){
     correctAnswers,
     totalQuestionsAsked,
     averageResponseTimeMs:totalItems?totalResponseTime/totalItems:0,
-    correctThreshold:Math.max(1,parseInt(correctThresholdInput.value)||parseInt(defaultSettings.correctThreshold)),
-    incorrectThreshold:Math.max(1,parseInt(incorrectThresholdInput.value)||parseInt(defaultSettings.incorrectThreshold)),
+    correctThreshold:thresholds.correct,
+    incorrectThreshold:thresholds.incorrect,
     startingInterval,
     minimumInterval,
     intervalIncrement,
     voice:selectedVoice,
-    playbackSpeed
+    playbackSpeed,
+    includeInTrends:sessionOutcome!=="Manually exited"
   });
 }
 
@@ -1093,6 +1381,100 @@ function formatChartDateLabel(timestamp,includeYear=false){
   const options={ month:"short", day:"numeric" };
   if(includeYear) options.year="numeric";
   return new Intl.DateTimeFormat(undefined,options).format(new Date(timestamp));
+}
+
+function getLocalCalendarDayKey(timestamp){
+  const date=new Date(Number(timestamp)||0);
+  return [
+    date.getFullYear(),
+    String(date.getMonth()+1).padStart(2,"0"),
+    String(date.getDate()).padStart(2,"0")
+  ].join("-");
+}
+
+function getLocalCalendarDayStart(timestamp){
+  const date=new Date(Number(timestamp)||0);
+  return new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime();
+}
+
+function addDailyTrendBucket(buckets,session,value,weight){
+  const numericValue=Number(value);
+  const numericWeight=Number(weight);
+  if(!Number.isFinite(numericValue) || !Number.isFinite(numericWeight) || numericWeight<=0) return;
+
+  const timestamp=Number(session?.endedAt || session?.startedAt || Date.now());
+  const dayKey=getLocalCalendarDayKey(timestamp);
+  const dayStart=getLocalCalendarDayStart(timestamp);
+  const bucket=buckets.get(dayKey) || {
+    dayKey,
+    dayStart,
+    total:0,
+    weightTotal:0,
+    count:0
+  };
+
+  bucket.total += numericValue * numericWeight;
+  bucket.weightTotal += numericWeight;
+  bucket.count += 1;
+  bucket.dayStart=Math.min(bucket.dayStart,dayStart);
+  buckets.set(dayKey,bucket);
+}
+
+function finalizeDailyTrendBuckets(buckets){
+  return [...buckets.values()]
+    .sort((a,b)=>a.dayStart-b.dayStart)
+    .map(bucket=>({
+      dayKey:bucket.dayKey,
+      dayStart:bucket.dayStart,
+      value:bucket.weightTotal ? bucket.total / bucket.weightTotal : 0,
+      count:bucket.count,
+      weightTotal:bucket.weightTotal,
+      label:formatChartDateLabel(bucket.dayStart,false)
+    }));
+}
+
+function aggregateSessionsByDay(sessions,valueGetter,weightGetter){
+  const buckets=new Map();
+
+  sessions.forEach(session=>{
+    const weight=Number(weightGetter ? weightGetter(session) : 1);
+    addDailyTrendBucket(buckets,session,valueGetter(session),weight);
+  });
+
+  return finalizeDailyTrendBuckets(buckets);
+}
+
+function isTrendEligibleSession(session){
+  return session?.includeInTrends!==false;
+}
+
+function isSessionInMode(session,mode){
+  return (session?.arithmeticMode || defaultSettings.mode)===mode;
+}
+
+function buildTrendDataForSessions(sessions,mode){
+  const filteredSessions=sessions.filter(session=>isTrendEligibleSession(session) && isSessionInMode(session,mode));
+  return {
+    accuracyPoints:aggregateSessionsByDay(
+      filteredSessions,
+      session=>Number(session.accuracy),
+      session=>Number(session.totalQuestionsAsked)
+    ),
+    responsePoints:aggregateSessionsByDay(
+      filteredSessions,
+      session=>Number(session.averageResponseTimeMs),
+      session=>Number(session.totalQuestionsAsked)
+    ),
+    mode
+  };
+}
+
+function getDailyTrendLabelCount(pointCount){
+  if(pointCount<=7) return pointCount;
+  if(pointCount<=14) return 6;
+  if(pointCount<=30) return 7;
+  if(pointCount<=90) return 8;
+  return 9;
 }
 
 function formatChartValue(value,unit=""){
@@ -1274,12 +1656,15 @@ function applyChartState(container,config){
 
   const colors=getChartThemeColors();
   const multiSeries=Array.isArray(config.series) && config.series.length>1;
+  const baseRadius=Number.isFinite(Number(config.pointRadius)) ? Math.max(0,Number(config.pointRadius)) : 4.5;
+  const hoverRadius=Number.isFinite(Number(config.pointHoverRadius)) ? Math.max(baseRadius,Number(config.pointHoverRadius)) : baseRadius + 1.2;
+  const selectedRadius=Number.isFinite(Number(config.pointSelectedRadius)) ? Math.max(hoverRadius,Number(config.pointSelectedRadius)) : baseRadius + 2.2;
   circles.forEach((circle,index)=>{
     const circleIndex=Number(circle.dataset.pointIndex);
     const isSelected=circleIndex===state.selectedIndex;
     const isHovered=!isSelected && circleIndex===state.hoverIndex;
     const active=isSelected || isHovered;
-    const radius=isSelected ? 7.2 : isHovered ? 6.2 : 4.5;
+    const radius=isSelected ? selectedRadius : isHovered ? hoverRadius : baseRadius;
     const seriesIndex=Number(circle.dataset.seriesIndex);
     const seriesColor=multiSeries && config.series && config.series[seriesIndex]
       ? (config.series[seriesIndex].lineColor || config.series[seriesIndex].pointStroke || colors.accent)
@@ -1628,7 +2013,7 @@ function renderLatestIntervalChartOverview(latestTrace,overviewData){
   const overviewMax=Math.max(...overviewIntervalValues, ...(overviewResponseValuesForScale.length ? overviewResponseValuesForScale : [0]));
   const overviewMin=Math.min(...overviewIntervalValues, ...(overviewResponseValuesForScale.length ? overviewResponseValuesForScale : [0]));
 
-  renderOverlayLineChart(latestIntervalChart,{
+    renderOverlayLineChart(latestIntervalChart,{
     series:[
       {
         label:"Interval",
@@ -1646,9 +2031,9 @@ function renderLatestIntervalChartOverview(latestTrace,overviewData){
         pointTitles:overviewPointMeta.map(point=>`${point.xExactLabel} - ${point.seriesValues[1]?.exactLabel || ""}`),
         yFormatter:value=>formatChartValue(value," ms")
       }
-    ],
-    xLabels:overviewData.blocks.map(block=>block.rangeLabel),
-    pointMeta:overviewPointMeta,
+      ],
+      xLabels:overviewData.blocks.map(block=>block.rangeLabel),
+      pointMeta:overviewPointMeta,
     xDetailLabel:"Question block",
     yDetailLabel:"Milliseconds",
     yMin:overviewMin,
@@ -1657,15 +2042,20 @@ function renderLatestIntervalChartOverview(latestTrace,overviewData){
     yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time overview chart",
     emptyMessage:"No interval data is available yet.",
-    yFormatter:value=>formatChartValue(value," ms"),
-    maxXLabels:overviewData.blocks.length > 20 ? 6 : overviewData.blocks.length > 10 ? 5 : 6,
-    floorAtZero:false,
-    height:300,
-    margin:{ top:22, right:18, bottom:58, left:60 },
-    onPointSelect:index=>{
-      clearChartInteractions(latestIntervalChart);
-      setLatestIntervalChartMode("detail",index);
-      renderLatestIntervalChart(latestTrace);
+      yFormatter:value=>formatChartValue(value," ms"),
+      maxXLabels:overviewData.blocks.length > 20 ? 6 : overviewData.blocks.length > 10 ? 5 : 6,
+      floorAtZero:false,
+      height:258,
+      margin:{ top:18, right:14, bottom:48, left:52 },
+      pointRadius:3.6,
+      pointHoverRadius:4.8,
+      pointSelectedRadius:6.0,
+      labelFontSize:10,
+      axisLabelFontSize:10,
+      onPointSelect:index=>{
+        clearChartInteractions(latestIntervalChart);
+        setLatestIntervalChartMode("detail",index);
+        renderLatestIntervalChart(latestTrace);
     }
   });
 
@@ -1708,7 +2098,7 @@ function renderLatestIntervalChartRaw(latestTrace){
     };
   });
 
-  renderOverlayLineChart(latestIntervalChart,{
+    renderOverlayLineChart(latestIntervalChart,{
     series:[
       {
         label:"Interval",
@@ -1739,12 +2129,17 @@ function renderLatestIntervalChartRaw(latestTrace){
     yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time chart",
     emptyMessage:"No interval data is available yet.",
-    yFormatter:value=>formatChartValue(value," ms"),
-    maxXLabels:tracePoints.length > 30 ? 6 : tracePoints.length > 15 ? 5 : 6,
-    floorAtZero:false,
-    height:300,
-    margin:{ top:22, right:18, bottom:58, left:60 }
-  });
+      yFormatter:value=>formatChartValue(value," ms"),
+      maxXLabels:tracePoints.length > 30 ? 6 : tracePoints.length > 15 ? 5 : 6,
+      floorAtZero:false,
+      height:236,
+      margin:{ top:16, right:14, bottom:42, left:74 },
+      pointRadius:3.6,
+      pointHoverRadius:4.8,
+      pointSelectedRadius:6.0,
+      labelFontSize:12,
+      axisLabelFontSize:12
+    });
 
   latestIntervalBackBtn.classList.add("hidden");
   if(latestIntervalCaption){
@@ -1788,7 +2183,7 @@ function renderLatestIntervalChartDetail(latestTrace,detailBlock){
     };
   });
 
-  renderOverlayLineChart(latestIntervalChart,{
+    renderOverlayLineChart(latestIntervalChart,{
     series:[
       {
         label:"Interval",
@@ -1819,12 +2214,17 @@ function renderLatestIntervalChartDetail(latestTrace,detailBlock){
     yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time chart",
     emptyMessage:"No interval data is available yet.",
-    yFormatter:value=>formatChartValue(value," ms"),
-    maxXLabels:detailPoints.length > 30 ? 6 : detailPoints.length > 15 ? 5 : 6,
-    floorAtZero:false,
-    height:300,
-    margin:{ top:22, right:18, bottom:58, left:60 }
-  });
+      yFormatter:value=>formatChartValue(value," ms"),
+      maxXLabels:detailPoints.length > 30 ? 6 : detailPoints.length > 15 ? 5 : 6,
+      floorAtZero:false,
+      height:252,
+      margin:{ top:18, right:14, bottom:48, left:76 },
+      pointRadius:3.6,
+      pointHoverRadius:4.8,
+      pointSelectedRadius:6.0,
+      labelFontSize:11,
+      axisLabelFontSize:11
+    });
 
   latestIntervalBackBtn.classList.remove("hidden");
   if(latestIntervalCaption){
@@ -1835,10 +2235,15 @@ function renderLatestIntervalChartDetail(latestTrace,detailBlock){
 }
 
 function renderLineChart(container,config){
+  const detailsEl=container.id ? document.getElementById(container.id.replace(/Chart$/,"Details")) : null;
   const values=Array.isArray(config.values) ? config.values.filter(value=>Number.isFinite(Number(value))) : [];
   if(!values.length){
     clearChartInteractions(container);
     ensureChartSurface(container).innerHTML=`<div class="chart-empty">${escapeSvgText(config.emptyMessage || "No data available.")}</div>`;
+    if(detailsEl){
+      detailsEl.hidden=true;
+      detailsEl.innerHTML="";
+    }
     return;
   }
 
@@ -1849,6 +2254,8 @@ function renderLineChart(container,config){
   const innerHeight=height-margin.top-margin.bottom;
   let min=Number.isFinite(config.yMin) ? config.yMin : Math.min(...values);
   let max=Number.isFinite(config.yMax) ? config.yMax : Math.max(...values);
+  const xValues=Array.isArray(config.xValues) ? config.xValues.map(value=>Number(value)) : null;
+  const hasXValues=Array.isArray(xValues) && xValues.length===values.length && xValues.every(Number.isFinite);
 
   if(min===max){
     min-=1;
@@ -1865,8 +2272,14 @@ function renderLineChart(container,config){
 
   const safeRange=max-min || 1;
   const pointCount=values.length;
+  const xMin=hasXValues ? Math.min(...xValues) : 0;
+  const xMax=hasXValues ? Math.max(...xValues) : Math.max(1,pointCount-1);
+  const xSafeRange=Math.max(1,xMax-xMin);
   const xPosition=index=>{
     if(pointCount===1) return margin.left + innerWidth/2;
+    if(hasXValues){
+      return margin.left + (((xValues[index]-xMin)/xSafeRange)*innerWidth);
+    }
     return margin.left + (innerWidth*(index/(pointCount-1)));
   };
   const yPosition=value=>margin.top + innerHeight - (((value-min)/safeRange)*innerHeight);
@@ -1889,6 +2302,11 @@ function renderLineChart(container,config){
   const pointStroke=config.pointStroke || "var(--accent)";
   const gridColor=config.gridColor || "var(--border)";
   const textColor=config.textColor || "var(--muted)";
+  const labelFontSize=Number.isFinite(Number(config.labelFontSize)) ? Math.max(8,Number(config.labelFontSize)) : 12;
+  const axisLabelFontSize=Number.isFinite(Number(config.axisLabelFontSize)) ? Math.max(8,Number(config.axisLabelFontSize)) : labelFontSize;
+  const pointRadius=Number.isFinite(Number(config.pointRadius)) ? Math.max(0,Number(config.pointRadius)) : null;
+  const showPoints=config.showPoints !== false;
+  const interactive=config.interactive !== false;
 
   let svg=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${ariaLabel}" class="chart-svg">`;
   svg+=`<rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>`;
@@ -1896,7 +2314,7 @@ function renderLineChart(container,config){
   yTicks.forEach(tick=>{
     const y=yPosition(tick);
     svg+=`<line x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width-margin.right}" y2="${y.toFixed(2)}" stroke="${gridColor}" stroke-width="1"></line>`;
-    svg+=`<text x="${margin.left-8}" y="${(y+4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="11">${escapeSvgText(config.yFormatter ? config.yFormatter(tick) : formatChartValue(tick))}</text>`;
+    svg+=`<text x="${margin.left-8}" y="${(y+4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="${labelFontSize}">${escapeSvgText(config.yFormatter ? config.yFormatter(tick) : formatChartValue(tick))}</text>`;
   });
 
   svg+=`<line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height-margin.bottom}" stroke="${gridColor}" stroke-width="1"></line>`;
@@ -1906,25 +2324,27 @@ function renderLineChart(container,config){
     svg+=`<path d="${path}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>`;
   }
 
-  points.forEach((point,index)=>{
-    const title=config.pointTitles && config.pointTitles[index] ? config.pointTitles[index] : "";
-    svg+=`<circle class="chart-point" data-point-index="${index}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4.5" fill="${pointFill}" stroke="${pointStroke}" stroke-width="2" aria-label="${escapeSvgText(title || `Point ${index + 1}`)}">`;
-    svg+=`</circle>`;
-  });
+  if(showPoints){
+    points.forEach((point,index)=>{
+      const title=config.pointTitles && config.pointTitles[index] ? config.pointTitles[index] : "";
+      const radius=pointRadius !== null ? pointRadius : (pointCount===1 ? 5 : 4.5);
+      svg+=`<circle class="chart-point" data-point-index="${index}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${radius}" fill="${pointFill}" stroke="${pointStroke}" stroke-width="2" aria-label="${escapeSvgText(title || `Point ${index + 1}`)}"></circle>`;
+    });
+  }
 
   xLabelIndices.forEach(index=>{
     const x=xPosition(index);
     const label=config.xLabels && config.xLabels[index] ? config.xLabels[index] : String(index + 1);
     const anchor=index===0 ? "start" : index===pointCount-1 ? "end" : "middle";
-    svg+=`<text x="${x.toFixed(2)}" y="${height-14}" text-anchor="${anchor}" fill="${textColor}" font-size="11">${escapeSvgText(label)}</text>`;
+    svg+=`<text x="${x.toFixed(2)}" y="${height-14}" text-anchor="${anchor}" fill="${textColor}" font-size="${labelFontSize}">${escapeSvgText(label)}</text>`;
   });
 
   if(xAxisLabel){
-    svg+=`<text x="${(margin.left + innerWidth/2).toFixed(2)}" y="${height-2}" text-anchor="middle" fill="${textColor}" font-size="11">${xAxisLabel}</text>`;
+    svg+=`<text x="${(margin.left + innerWidth/2).toFixed(2)}" y="${height-2}" text-anchor="middle" fill="${textColor}" font-size="${axisLabelFontSize}">${xAxisLabel}</text>`;
   }
 
   if(yAxisLabel){
-    svg+=`<text x="14" y="${(margin.top + innerHeight/2).toFixed(2)}" text-anchor="middle" fill="${textColor}" font-size="11" transform="rotate(-90 14 ${(margin.top + innerHeight/2).toFixed(2)})">${yAxisLabel}</text>`;
+    svg+=`<text x="14" y="${(margin.top + innerHeight/2).toFixed(2)}" text-anchor="middle" fill="${textColor}" font-size="${axisLabelFontSize}" transform="rotate(-90 14 ${(margin.top + innerHeight/2).toFixed(2)})">${yAxisLabel}</text>`;
   }
 
   svg+="</svg>";
@@ -1942,12 +2362,20 @@ function renderLineChart(container,config){
   }));
 
   const state=getChartState(container);
-  state.points=mergedPointMeta;
   state.chartKey=container.id || container;
 
   config.pointMeta=mergedPointMeta;
-  bindChartInteractions(container,config);
-  applyChartState(container,config);
+  if(interactive){
+    state.points=mergedPointMeta;
+    bindChartInteractions(container,config);
+    applyChartState(container,config);
+  }else{
+    clearChartInteractions(container);
+    if(detailsEl){
+      detailsEl.hidden=true;
+      detailsEl.innerHTML="";
+    }
+  }
 }
 
 function renderOverlayLineChart(container,config){
@@ -2006,6 +2434,9 @@ function renderOverlayLineChart(container,config){
   const gridColor=config.gridColor || "var(--border)";
   const textColor=config.textColor || "var(--muted)";
   const colors=getChartThemeColors();
+  const labelFontSize=Number.isFinite(Number(config.labelFontSize)) ? Math.max(8,Number(config.labelFontSize)) : 12;
+  const axisLabelFontSize=Number.isFinite(Number(config.axisLabelFontSize)) ? Math.max(8,Number(config.axisLabelFontSize)) : labelFontSize;
+  const pointRadius=Number.isFinite(Number(config.pointRadius)) ? Math.max(0,Number(config.pointRadius)) : 4.5;
   const seriesPoints=seriesConfigs.map(series=>series.values.map((value,index)=>{
     const numeric=Number(value);
     if(!Number.isFinite(numeric)) return null;
@@ -2022,7 +2453,7 @@ function renderOverlayLineChart(container,config){
   yTicks.forEach(tick=>{
     const y=yPosition(tick);
     svg+=`<line x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width-margin.right}" y2="${y.toFixed(2)}" stroke="${gridColor}" stroke-width="1"></line>`;
-    svg+=`<text x="${margin.left-10}" y="${(y+4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="11">${escapeSvgText(config.yFormatter ? config.yFormatter(tick) : formatChartValue(tick))}</text>`;
+    svg+=`<text x="${margin.left-10}" y="${(y+4).toFixed(2)}" text-anchor="end" fill="${textColor}" font-size="${labelFontSize}">${escapeSvgText(config.yFormatter ? config.yFormatter(tick) : formatChartValue(tick))}</text>`;
   });
 
   svg+=`<line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height-margin.bottom}" stroke="${gridColor}" stroke-width="1"></line>`;
@@ -2044,7 +2475,7 @@ function renderOverlayLineChart(container,config){
     seriesPoints[seriesIndex].forEach((point,index)=>{
       if(!point) return;
       const title=series.pointTitles && series.pointTitles[index] ? series.pointTitles[index] : `${seriesLabel} ${index + 1}`;
-      svg+=`<circle class="chart-point" data-point-index="${index}" data-series-index="${seriesIndex}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4.5" fill="${colors.surface}" stroke="${lineColor}" stroke-width="2" aria-label="${escapeSvgText(title)}"></circle>`;
+      svg+=`<circle class="chart-point" data-point-index="${index}" data-series-index="${seriesIndex}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${pointRadius}" fill="${colors.surface}" stroke="${lineColor}" stroke-width="2" aria-label="${escapeSvgText(title)}"></circle>`;
     });
   });
 
@@ -2052,15 +2483,15 @@ function renderOverlayLineChart(container,config){
     const x=xPosition(index);
     const label=config.xLabels && config.xLabels[index] ? config.xLabels[index] : String(index + 1);
     const anchor=index===0 ? "start" : index===pointCount-1 ? "end" : "middle";
-    svg+=`<text x="${x.toFixed(2)}" y="${height-14}" text-anchor="${anchor}" fill="${textColor}" font-size="11">${escapeSvgText(label)}</text>`;
+    svg+=`<text x="${x.toFixed(2)}" y="${height-14}" text-anchor="${anchor}" fill="${textColor}" font-size="${labelFontSize}">${escapeSvgText(label)}</text>`;
   });
 
   if(xAxisLabel){
-    svg+=`<text x="${(margin.left + innerWidth/2).toFixed(2)}" y="${height-2}" text-anchor="middle" fill="${textColor}" font-size="11">${xAxisLabel}</text>`;
+    svg+=`<text x="${(margin.left + innerWidth/2).toFixed(2)}" y="${height-2}" text-anchor="middle" fill="${textColor}" font-size="${axisLabelFontSize}">${xAxisLabel}</text>`;
   }
 
   if(yAxisLabel){
-    svg+=`<text x="14" y="${(margin.top + innerHeight/2).toFixed(2)}" text-anchor="middle" fill="${textColor}" font-size="11" transform="rotate(-90 14 ${(margin.top + innerHeight/2).toFixed(2)})">${yAxisLabel}</text>`;
+    svg+=`<text x="14" y="${(margin.top + innerHeight/2).toFixed(2)}" text-anchor="middle" fill="${textColor}" font-size="${axisLabelFontSize}" transform="rotate(-90 14 ${(margin.top + innerHeight/2).toFixed(2)})">${yAxisLabel}</text>`;
   }
 
   svg+="</svg>";
@@ -2118,81 +2549,67 @@ function renderOverlayLineChart(container,config){
   applyChartState(container,config);
 }
 
-function renderHistoryCharts(stats,latestTrace){
-  latestHistoryChartContext={ stats, latestTrace };
-  const historyMode=ensureHistoryChartMode(stats.sessions);
-  const modeSessions=getHistoryChartSessions(stats.sessions,historyMode);
-  const sessionsChronological=[...modeSessions].sort((a,b)=>Number(a.endedAt||0)-Number(b.endedAt||0));
-  const hasSessionData=sessionsChronological.length>0;
-  const sessionYears=new Set(sessionsChronological.map(session=>new Date(session.endedAt || session.startedAt || Date.now()).getFullYear()));
-  const includeYearInLabels=sessionYears.size>1;
+function renderHistoryCharts(trendData,latestTrace,fallbackMode){
+  latestHistoryChartContext={ stats:null, latestTrace };
+  const historyMode=ensureHistoryChartMode(fallbackMode);
+  const dailyAccuracyPoints=Array.isArray(trendData?.accuracyPoints) ? trendData.accuracyPoints : [];
+  const dailyResponsePoints=Array.isArray(trendData?.responsePoints) ? trendData.responsePoints : [];
+  const dailyYears=new Set([...dailyAccuracyPoints,...dailyResponsePoints].map(point=>new Date(point.dayStart).getFullYear()));
+  const includeYearInLabels=dailyYears.size>1;
+  const hasTrendData=dailyAccuracyPoints.length>0 || dailyResponsePoints.length>0;
 
-  if(hasSessionData){
-    const accuracyValues=sessionsChronological.map(session=>Number(session.accuracy)||0);
-    const accuracyLabels=sessionsChronological.map(session=>{
-      const date=Number(session.endedAt || session.startedAt || Date.now());
-      return formatChartDateLabel(date,includeYearInLabels);
-    });
-    const accuracyPointMeta=sessionsChronological.map(session=>{
-      const xExact=formatSessionDateTime(session.endedAt || session.startedAt);
-      const yExact=formatPercent(Number(session.accuracy)||0);
-      return {
-        xExactLabel:xExact,
-        yExactLabel:yExact,
-        summary:`${xExact} • ${yExact}`
-      };
-    });
-
+  if(hasTrendData){
     renderLineChart(accuracyTrendChart,{
-      values:accuracyValues,
-      xLabels:accuracyLabels,
-      pointTitles:accuracyPointMeta.map(point=>`${point.xExactLabel} - ${point.yExactLabel}`),
-      pointMeta:accuracyPointMeta,
-      xDetailLabel:"Session date",
-      yDetailLabel:"Accuracy",
+      values:dailyAccuracyPoints.map(point=>point.value),
+      xValues:dailyAccuracyPoints.map(point=>point.dayStart),
+      xLabels:dailyAccuracyPoints.map(point=>formatChartDateLabel(point.dayStart,includeYearInLabels)),
+      xDetailLabel:"Date",
+      yDetailLabel:"Average daily accuracy",
       yMin:0,
       yMax:100,
-      xAxisLabel:"Session date",
+      xAxisLabel:"Date",
       yAxisLabel:"Accuracy (%)",
       ariaLabel:"Accuracy trend chart",
       emptyMessage:"No session data is available yet.",
       yFormatter:value=>formatChartValue(value,"%"),
-      maxXLabels:sessionsChronological.length > 20 ? 6 : sessionsChronological.length > 10 ? 5 : 6,
-      floorAtZero:true
+      maxXLabels:getDailyTrendLabelCount(dailyAccuracyPoints.length),
+      floorAtZero:true,
+      showPoints:dailyAccuracyPoints.length===1,
+      pointRadius:3.8,
+      pointHoverRadius:5.0,
+      pointSelectedRadius:6.0,
+      labelFontSize:12,
+      axisLabelFontSize:12,
+      margin:{ top:14, right:12, bottom:42, left:50 },
+      interactive:false
     });
 
-    const responseValues=sessionsChronological.map(session=>Number(session.averageResponseTimeMs)||0);
+    const responseValues=dailyResponsePoints.map(point=>point.value);
     const responseMax=Math.max(...responseValues,0);
-    const responseLabels=sessionsChronological.map(session=>{
-      const date=Number(session.endedAt || session.startedAt || Date.now());
-      return formatChartDateLabel(date,includeYearInLabels);
-    });
-    const responsePointMeta=sessionsChronological.map(session=>{
-      const xExact=formatSessionDateTime(session.endedAt || session.startedAt);
-      const yExact=formatChartExactValue(Number(session.averageResponseTimeMs)||0," ms");
-      return {
-        xExactLabel:xExact,
-        yExactLabel:yExact,
-        summary:`${xExact} • ${yExact}`
-      };
-    });
 
     renderLineChart(responseTimeTrendChart,{
       values:responseValues,
-      xLabels:responseLabels,
-      pointTitles:responsePointMeta.map(point=>`${point.xExactLabel} - ${point.yExactLabel}`),
-      pointMeta:responsePointMeta,
-      xDetailLabel:"Session date",
-      yDetailLabel:"Average response time",
+      xValues:dailyResponsePoints.map(point=>point.dayStart),
+      xLabels:dailyResponsePoints.map(point=>formatChartDateLabel(point.dayStart,includeYearInLabels)),
+      xDetailLabel:"Date",
+      yDetailLabel:"Average daily response time",
       yMin:0,
       yMax:responseMax ? responseMax * 1.1 : 100,
-      xAxisLabel:"Session date",
+      xAxisLabel:"Date",
       yAxisLabel:"Average response time (ms)",
       ariaLabel:"Response time trend chart",
       emptyMessage:"No session data is available yet.",
       yFormatter:value=>formatChartValue(value," ms"),
-      maxXLabels:sessionsChronological.length > 20 ? 6 : sessionsChronological.length > 10 ? 5 : 6,
-      floorAtZero:true
+      maxXLabels:getDailyTrendLabelCount(dailyResponsePoints.length),
+      floorAtZero:true,
+      showPoints:dailyResponsePoints.length===1,
+      pointRadius:3.8,
+      pointHoverRadius:5.0,
+      pointSelectedRadius:6.0,
+      labelFontSize:11,
+      axisLabelFontSize:11,
+      margin:{ top:14, right:12, bottom:42, left:50 },
+      interactive:false
     });
   }else{
     const emptyMessage=`No ${formatArithmeticModeLabel(historyMode)} sessions saved yet. Finish a session in this mode to see trends over time.`;
@@ -2213,56 +2630,91 @@ function renderHistoryCharts(stats,latestTrace){
   renderLatestIntervalChart(latestTrace);
 }
 
-function renderLatestIntervalChart(latestTrace){
-  const tracePoints=Array.isArray(latestTrace?.trace) ? latestTrace.trace : [];
-  syncLatestIntervalChartSession(latestTrace);
-
-  if(!tracePoints.length){
-    renderLatestIntervalChartEmptyState("No recent session data is available yet.");
-    return;
-  }
-
-  const overviewData=buildLatestIntervalOverviewBlocks(tracePoints,latestIntervalChart?.clientWidth || 720);
-  const detailBlockIndex=latestIntervalChartViewState.mode==="detail" ? latestIntervalChartViewState.blockIndex : null;
-  const detailBlock=detailBlockIndex===null ? null : overviewData.blocks[detailBlockIndex];
-
-  if(latestIntervalChartViewState.mode==="detail" && !detailBlock){
-    setLatestIntervalChartMode("overview",null);
-  }
-
-  if(overviewData.blockSize===1){
-    renderLatestIntervalChartRaw(latestTrace);
-    return;
-  }
-
-  if(latestIntervalChartViewState.mode==="detail" && detailBlock){
-    renderLatestIntervalChartDetail(latestTrace,detailBlock);
-    return;
-  }
-
-  renderLatestIntervalChartOverview(latestTrace,overviewData);
+function renderHistoryChartsSection(trendData,latestTrace,fallbackMode){
+  renderHistoryCharts(trendData,latestTrace,fallbackMode);
 }
 
-function renderHistoryView(stats,latestTrace){
+function formatHistoryPageSummary(pageData){
+  const totalSessions=Number(pageData?.totalSessions)||0;
+  if(!totalSessions) return "Showing 0 sessions";
+  const visibleStart=Number(pageData?.visibleStart)||0;
+  const visibleEnd=Number(pageData?.visibleEnd)||0;
+  return `Showing ${visibleStart}-${visibleEnd} of ${totalSessions} sessions`;
+}
+
+function formatHistoryPageIndicator(pageData){
+  const pageCount=Number(pageData?.pageCount)||0;
+  const pageIndex=Number(pageData?.pageIndex)||0;
+  if(!pageCount) return "Page 0 of 0";
+  return `Page ${pageIndex + 1} of ${pageCount}`;
+}
+
+function updateHistoryPaginationControls(pageData){
+  const pageCount=Number(pageData?.pageCount)||0;
+  if(historyPaginationSummary){
+    historyPaginationSummary.textContent=formatHistoryPageSummary(pageData);
+  }
+  if(historyPaginationIndicator){
+    historyPaginationIndicator.textContent=formatHistoryPageIndicator(pageData);
+  }
+  if(historyPaginationControls){
+    historyPaginationControls.classList.toggle("is-single-page",pageCount<=1);
+  }
+  if(historyPrevPageBtn){
+    historyPrevPageBtn.disabled=!pageData?.hasPrevious;
+  }
+  if(historyNextPageBtn){
+    historyNextPageBtn.disabled=!pageData?.hasNext;
+  }
+}
+
+function applyHistoryTrendToggleState(button,includeInTrends){
+  if(!button) return;
+  button.dataset.included=includeInTrends ? "true" : "false";
+  button.textContent=includeInTrends ? "Included in trends" : "Excluded from trends";
+  button.setAttribute("aria-pressed",String(!!includeInTrends));
+  button.classList.toggle("is-included",includeInTrends);
+  button.classList.toggle("is-excluded",!includeInTrends);
+}
+
+async function toggleHistorySessionTrendInclusion(session,button){
+  if(!session || !button) return;
+  const nextIncludeInTrends=!session.includeInTrends;
+  const previousIncludeInTrends=!!session.includeInTrends;
+  applyHistoryTrendToggleState(button,nextIncludeInTrends);
+  button.disabled=true;
+
+  try{
+    const updatedSession={
+      ...session,
+      includeInTrends:nextIncludeInTrends
+    };
+    const savePromise=historyTrendUpdateChain.then(()=>sessionHistoryStore.saveSession(updatedSession));
+    historyTrendUpdateChain=savePromise.catch(()=>{});
+    const saved=await savePromise;
+    session.includeInTrends=typeof saved?.includeInTrends==="boolean" ? saved.includeInTrends : nextIncludeInTrends;
+    applyHistoryTrendToggleState(button,session.includeInTrends);
+  }catch(e){
+    session.includeInTrends=previousIncludeInTrends;
+    applyHistoryTrendToggleState(button,previousIncludeInTrends);
+  }finally{
+    button.disabled=false;
+  }
+}
+
+function renderHistorySessionsSection(viewData){
+  const stats=viewData?.stats || EMPTY_HISTORY_STATS;
+  const pageData=viewData?.pageData || createEmptyHistoryPageData();
+
   historyCompletedSessions.textContent=String(stats.completedSessions);
   historyCorrectAnswers.textContent=String(stats.totalCorrectAnswers);
   historyDurationTrained.textContent=formatDuration(stats.totalDurationMs);
 
   syncHistoryFilterControls();
-  renderHistoryCharts(stats,latestTrace);
-
-  const filteredSessions=applyHistoryFilters(stats.sessions);
   recentSessionsList.innerHTML="";
+  updateHistoryPaginationControls(pageData);
 
-  if(!stats.sessions.length){
-    const empty=document.createElement("div");
-    empty.className="history-empty";
-    empty.textContent="No saved sessions yet.";
-    recentSessionsList.appendChild(empty);
-    return;
-  }
-
-  if(!filteredSessions.length){
+  if(!pageData.totalSessions){
     const empty=document.createElement("div");
     empty.className="history-empty";
     empty.textContent=getActiveHistoryFilterCount() ? "No sessions match the current filters." : "No saved sessions yet.";
@@ -2270,7 +2722,15 @@ function renderHistoryView(stats,latestTrace){
     return;
   }
 
-  filteredSessions.slice(0,10).forEach(session=>{
+  if(!pageData.sessions.length){
+    const empty=document.createElement("div");
+    empty.className="history-empty";
+    empty.textContent=getActiveHistoryFilterCount() ? "No sessions match the current filters." : "No saved sessions yet.";
+    recentSessionsList.appendChild(empty);
+    return;
+  }
+
+  pageData.sessions.forEach(session=>{
     const item=document.createElement("div");
     item.className="history-item";
 
@@ -2320,21 +2780,147 @@ function renderHistoryView(stats,latestTrace){
     meta.appendChild(endConditionLabel);
     meta.appendChild(thresholds);
 
+    const trendRow=document.createElement("div");
+    trendRow.className="history-item-trend";
+
+    const trendLabel=document.createElement("span");
+    trendLabel.textContent="Trend inclusion";
+
+    const trendButton=document.createElement("button");
+    trendButton.type="button";
+    trendButton.className="history-trend-toggle";
+    trendButton.setAttribute("aria-label","Toggle whether this session contributes to trend graphs");
+    applyHistoryTrendToggleState(trendButton,session.includeInTrends!==false);
+    trendButton.onclick=()=>{
+      void toggleHistorySessionTrendInclusion(session,trendButton);
+    };
+
+    trendRow.appendChild(trendLabel);
+    trendRow.appendChild(trendButton);
+
     item.appendChild(top);
     item.appendChild(meta);
+    item.appendChild(trendRow);
     recentSessionsList.appendChild(item);
   });
 }
 
-async function refreshHistoryView(){
+function renderLatestIntervalChart(latestTrace){
+  const tracePoints=Array.isArray(latestTrace?.trace) ? latestTrace.trace : [];
+  syncLatestIntervalChartSession(latestTrace);
+
+  if(!tracePoints.length){
+    renderLatestIntervalChartEmptyState("No recent session data is available yet.");
+    return;
+  }
+
+  const overviewData=buildLatestIntervalOverviewBlocks(tracePoints,latestIntervalChart?.clientWidth || 720);
+  const detailBlockIndex=latestIntervalChartViewState.mode==="detail" ? latestIntervalChartViewState.blockIndex : null;
+  const detailBlock=detailBlockIndex===null ? null : overviewData.blocks[detailBlockIndex];
+
+  if(latestIntervalChartViewState.mode==="detail" && !detailBlock){
+    setLatestIntervalChartMode("overview",null);
+  }
+
+  if(overviewData.blockSize===1){
+    renderLatestIntervalChartRaw(latestTrace);
+    return;
+  }
+
+  if(latestIntervalChartViewState.mode==="detail" && detailBlock){
+    renderLatestIntervalChartDetail(latestTrace,detailBlock);
+    return;
+  }
+
+  renderLatestIntervalChartOverview(latestTrace,overviewData);
+}
+
+function renderHistoryView(viewData){
+  const stats=viewData?.stats || EMPTY_HISTORY_STATS;
+  const latestTrace=viewData?.latestTrace || null;
+  const pageData=viewData?.pageData || createEmptyHistoryPageData();
+  const trendData=viewData?.trendData || createEmptyTrendData();
+  const fallbackMode=viewData?.fallbackMode || defaultSettings.mode;
+
+  renderHistoryChartsSection(trendData,latestTrace,fallbackMode);
+  renderHistorySessionsSection({ stats, pageData });
+}
+
+async function refreshHistoryTrendCharts(){
+  const refreshToken=++historyTrendRefreshToken;
   try{
-    const [stats,latestTrace]=await Promise.all([
-      sessionHistoryStore.getStats(),
-      sessionHistoryStore.getLatestTrace()
+    await historyTrendUpdateChain;
+    const [latestTrace,fallbackMode]=await Promise.all([
+      sessionHistoryStore.getLatestTrace(),
+      sessionHistoryStore.getMostRecentHistoryMode()
     ]);
-    renderHistoryView(stats,latestTrace);
+    const resolvedMode=ensureHistoryChartMode(fallbackMode);
+    const trendData=await sessionHistoryStore.getTrendData(resolvedMode);
+    if(refreshToken!==historyTrendRefreshToken) return;
+    renderHistoryChartsSection(trendData,latestTrace,fallbackMode);
   }catch(e){
-    renderHistoryView({ completedSessions:0, totalCorrectAnswers:0, totalDurationMs:0, sessions:[] },null);
+    if(refreshToken!==historyTrendRefreshToken) return;
+    renderHistoryChartsSection(createEmptyTrendData(),null,defaultSettings.mode);
+  }
+}
+
+async function refreshHistorySessions(){
+  const refreshToken=++historySessionRefreshToken;
+  const filtersSnapshot={ ...historyFilters };
+  try{
+    await historyTrendUpdateChain;
+    const [stats,pageData]=await Promise.all([
+      sessionHistoryStore.getStats(),
+      sessionHistoryStore.getSessionPage({
+        filters:filtersSnapshot,
+        pageIndex:historyPageIndex,
+        pageSize:HISTORY_PAGE_SIZE
+      })
+    ]);
+    if(refreshToken!==historySessionRefreshToken) return;
+    historyPageIndex=pageData.pageIndex;
+    renderHistorySessionsSection({ stats, pageData });
+  }catch(e){
+    if(refreshToken!==historySessionRefreshToken) return;
+    historyPageIndex=0;
+    renderHistorySessionsSection({
+      stats:EMPTY_HISTORY_STATS,
+      pageData:createEmptyHistoryPageData()
+    });
+  }
+}
+
+async function refreshHistoryView(){
+  const trendRefreshToken=++historyTrendRefreshToken;
+  const sessionRefreshToken=++historySessionRefreshToken;
+  const filtersSnapshot={ ...historyFilters };
+  try{
+    await historyTrendUpdateChain;
+    const [stats,latestTrace,fallbackMode,pageData]=await Promise.all([
+      sessionHistoryStore.getStats(),
+      sessionHistoryStore.getLatestTrace(),
+      sessionHistoryStore.getMostRecentHistoryMode(),
+      sessionHistoryStore.getSessionPage({
+        filters:filtersSnapshot,
+        pageIndex:historyPageIndex,
+        pageSize:HISTORY_PAGE_SIZE
+      })
+    ]);
+    const resolvedMode=ensureHistoryChartMode(fallbackMode);
+    const trendData=await sessionHistoryStore.getTrendData(resolvedMode);
+    if(trendRefreshToken!==historyTrendRefreshToken || sessionRefreshToken!==historySessionRefreshToken) return;
+    historyPageIndex=pageData.pageIndex;
+    renderHistoryView({ stats, latestTrace, trendData, pageData, fallbackMode });
+  }catch(e){
+    if(trendRefreshToken!==historyTrendRefreshToken || sessionRefreshToken!==historySessionRefreshToken) return;
+    historyPageIndex=0;
+    renderHistoryView({
+      stats:EMPTY_HISTORY_STATS,
+      latestTrace:null,
+      trendData:createEmptyTrendData(),
+      pageData:createEmptyHistoryPageData(),
+      fallbackMode:defaultSettings.mode
+    });
   }
 }
 
@@ -2664,8 +3250,8 @@ function updateIntervalStats(){
 
 function getThresholds(){
   return {
-    correct:Math.max(1,parseInt(correctThresholdInput.value)||parseInt(defaultSettings.correctThreshold)),
-    wrong:Math.max(1,parseInt(incorrectThresholdInput.value)||parseInt(defaultSettings.incorrectThreshold))
+    correct:parsePositiveInteger(correctThresholdInput.value,defaultSettings.correctThreshold),
+    incorrect:parsePositiveInteger(incorrectThresholdInput.value,defaultSettings.incorrectThreshold)
   };
 }
 
@@ -2677,7 +3263,6 @@ function changeInterval(newInterval){
   const previousInterval=interval;
 
   if(showIntervalTiming){
-    // finalize previous interval time
     if(previousInterval !== startingInterval || intervalCounts[previousInterval]){
       intervalTime[previousInterval]=(intervalTime[previousInterval]||0)+(now-currentIntervalStart);
     }
@@ -2687,7 +3272,6 @@ function changeInterval(newInterval){
   if(showIntervalTiming){
     currentIntervalStart=now;
 
-    // count AFTER first change rule
     intervalCounts[interval]=(intervalCounts[interval]||0)+1;
 
     updateIntervalStats();
@@ -2712,7 +3296,7 @@ function adjustDifficulty(){
     correctStreak=0;
   }
 
-  if(wrongStreak>=t.wrong){
+  if(wrongStreak>=t.incorrect){
     changeInterval(interval+intervalIncrement);
     wrongStreak=0;
   }
@@ -3050,12 +3634,15 @@ const historyFilterBtn=document.getElementById("historyFilterBtn");
 const historyFilterCountBadge=document.getElementById("historyFilterCountBadge");
 const resetHistoryFiltersBtn=document.getElementById("resetHistoryFiltersBtn");
 const backFromHistoryBtn=document.getElementById("backFromHistoryBtn");
+const refreshTrendChartsBtn=document.getElementById("refreshTrendChartsBtn");
+const refreshSessionsBtn=document.getElementById("refreshSessionsBtn");
 const exportHistoryBtn=document.getElementById("exportHistoryBtn");
 const importHistoryBtn=document.getElementById("importHistoryBtn");
 const importHistoryInput=document.getElementById("importHistoryInput");
 const historyFiltersPanel=document.getElementById("historyFiltersPanel");
 const historyStatusFilter=document.getElementById("historyStatusFilter");
 const historyModeFilter=document.getElementById("historyModeFilter");
+const historyTrendFilter=document.getElementById("historyTrendFilter");
 const historyCompletedSessions=document.getElementById("historyCompletedSessions");
 const historyCorrectAnswers=document.getElementById("historyCorrectAnswers");
 const historyDurationTrained=document.getElementById("historyDurationTrained");
@@ -3070,6 +3657,11 @@ const latestIntervalDetails=document.getElementById("latestIntervalDetails");
 const latestIntervalBackBtn=document.getElementById("latestIntervalBackBtn");
 const latestIntervalCaption=document.getElementById("latestIntervalCaption");
 const recentSessionsList=document.getElementById("recentSessionsList");
+const historyPaginationControls=document.querySelector(".history-pagination-controls");
+const historyPaginationSummary=document.getElementById("historyPaginationSummary");
+const historyPaginationIndicator=document.getElementById("historyPaginationIndicator");
+const historyPrevPageBtn=document.getElementById("historyPrevPageBtn");
+const historyNextPageBtn=document.getElementById("historyNextPageBtn");
 const settingsControls=[
   startingIntervalInput,
   minimumIntervalInput,
@@ -3107,6 +3699,8 @@ latestIntervalBackBtn.onclick=()=>{
 clearSessionsOnlyBtn.onclick=async()=>{
   if(!window.confirm("Delete saved sessions but keep lifetime totals?")) return;
   try{
+    await historyTrendUpdateChain;
+    setHistoryPageIndex(0);
     await sessionHistoryStore.clearSessionsOnly();
     await refreshHistoryView();
   }catch(e){}
@@ -3114,17 +3708,25 @@ clearSessionsOnlyBtn.onclick=async()=>{
 clearAllHistoryBtn.onclick=async()=>{
   if(!window.confirm("Delete all saved history and totals from this browser?")) return;
   try{
+    await historyTrendUpdateChain;
+    setHistoryPageIndex(0);
     await sessionHistoryStore.clearAll();
     await refreshHistoryView();
   }catch(e){}
 };
 historyFilterBtn.onclick=()=>{
   toggleHistoryFiltersVisible();
-  void refreshHistoryView();
 };
 backFromHistoryBtn.onclick=()=>setHistoryVisible(false);
+refreshTrendChartsBtn.onclick=()=>{
+  void refreshHistoryTrendCharts();
+};
+refreshSessionsBtn.onclick=()=>{
+  void refreshHistorySessions();
+};
 exportHistoryBtn.onclick=async()=>{
   try{
+    await historyTrendUpdateChain;
     const data=await sessionHistoryStore.exportData();
     const blob=new Blob([JSON.stringify(data,null,2)],{ type:"application/json" });
     const url=URL.createObjectURL(blob);
@@ -3142,28 +3744,43 @@ importHistoryInput.onchange=async()=>{
   const file=importHistoryInput.files&&importHistoryInput.files[0];
   if(!file) return;
   try{
+    await historyTrendUpdateChain;
     const text=await file.text();
     const parsed=JSON.parse(text);
     await sessionHistoryStore.importData(parsed);
+    setHistoryPageIndex(0);
     await refreshHistoryView();
   }catch(e){}
   importHistoryInput.value="";
 };
 historyStatusFilter.onchange=()=>{
   setHistoryFilterValue("status",historyStatusFilter.value);
-  void refreshHistoryView();
+  void refreshHistorySessions();
 };
 historyModeFilter.onchange=()=>{
   setHistoryFilterValue("mode",historyModeFilter.value);
-  void refreshHistoryView();
+  void refreshHistorySessions();
+};
+historyTrendFilter.onchange=()=>{
+  setHistoryFilterValue("trendInclusion",historyTrendFilter.value);
+  void refreshHistorySessions();
 };
 historyChartModeSelect.onchange=()=>{
   setHistoryChartMode(historyChartModeSelect.value);
-  void refreshHistoryView();
+  void refreshHistoryTrendCharts();
 };
 resetHistoryFiltersBtn.onclick=()=>{
   resetHistoryFilters();
-  void refreshHistoryView();
+  void refreshHistorySessions();
+};
+historyPrevPageBtn.onclick=()=>{
+  if(historyPageIndex<=0) return;
+  setHistoryPageIndex(historyPageIndex-1);
+  void refreshHistorySessions();
+};
+historyNextPageBtn.onclick=()=>{
+  setHistoryPageIndex(historyPageIndex+1);
+  void refreshHistorySessions();
 };
 voiceTestBtn.onclick=()=>{
   void testSelectedVoice();
