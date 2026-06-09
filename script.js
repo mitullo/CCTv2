@@ -48,7 +48,7 @@ const defaultSettings={
   endCondition:"timer",
   targetCorrect:"500",
   mode:"addition",
-  voice:"samantha",
+  voice:"nathan",
   playbackSpeed:"1",
   beepEnabled:true,
   darkMode:false,
@@ -81,6 +81,18 @@ function coercePositiveNumber(value,fallback,min=1){
   return Math.max(min,Number(value)||Number(fallback)||min);
 }
 
+function normalizeVoiceKey(value){
+  if(typeof value!=="string") return "";
+  return value.trim().toLowerCase().replace(/[\s_-]+/g,"");
+}
+
+function resolveVoiceKey(value,fallbackKey=defaultSettings.voice){
+  const normalized=normalizeVoiceKey(value);
+  if(normalized && voiceLibrary[normalized]) return normalized;
+  if(fallbackKey && voiceLibrary[fallbackKey]) return fallbackKey;
+  return Object.keys(voiceLibrary)[0] || fallbackKey;
+}
+
 function normalizeSavedSettings(parsed){
   const startingInterval=String(clampInteger(parsed.startingInterval ?? parsed.interval,defaultSettings.startingInterval,200,1500));
   const minimumFallback=Math.min(parseInt(defaultSettings.minimumInterval,10),parseInt(startingInterval,10));
@@ -94,6 +106,7 @@ function normalizeSavedSettings(parsed){
   const duration=String(Math.max(1,clampInteger(parsed.duration,defaultSettings.duration,1,9999)));
   const targetCorrect=String(Math.max(1,clampInteger(parsed.targetCorrect,defaultSettings.targetCorrect,1,9999)));
   const mode=ARITHMETIC_MODES.has(parsed.mode) ? parsed.mode : defaultSettings.mode;
+  const voice=resolveVoiceKey(parsed.voice,defaultSettings.voice);
 
   return {
     ...defaultSettings,
@@ -106,7 +119,7 @@ function normalizeSavedSettings(parsed){
     duration,
     targetCorrect,
     mode,
-    voice:parsed.voice ?? defaultSettings.voice,
+    voice,
     playbackSpeed:String(Math.max(1,Math.min(1.5,parseFloat(parsed.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed)))),
     showAdvancedSettings:!!parsed.showAdvancedSettings,
     showIntervalTiming:!!parsed.showIntervalTiming,
@@ -163,7 +176,11 @@ function readSavedSettings(){
     const saved=window.localStorage.getItem(SETTINGS_KEY);
     if(!saved) return {...defaultSettings};
     const parsed=JSON.parse(saved);
-    return normalizeSavedSettings(parsed);
+    const normalized=normalizeSavedSettings(parsed);
+    if(saved!==JSON.stringify(normalized)){
+      window.localStorage.setItem(SETTINGS_KEY,JSON.stringify(normalized));
+    }
+    return normalized;
   }catch(e){
     return {...defaultSettings};
   }
@@ -180,7 +197,7 @@ function getSettingsFromForm(){
     endCondition:endConditionSelect.value,
     targetCorrect:targetCorrectInput.value,
     mode:modeSelect.value,
-    voice:voiceSelect.value,
+    voice:resolveVoiceKey(voiceSelect.value || selectedVoice),
     playbackSpeed:playbackSpeedSelect.value,
     beepEnabled:beepToggle.checked,
     darkMode:themeToggle.checked,
@@ -244,7 +261,7 @@ function applySettings(settings){
   endConditionSelect.value=settings.endCondition;
   targetCorrectInput.value=settings.targetCorrect;
   applyArithmeticMode(settings.mode);
-  selectedVoice=voiceLibrary[settings.voice] ? settings.voice : Object.keys(voiceLibrary)[0];
+  selectedVoice=resolveVoiceKey(settings.voice);
   voiceSelect.value=selectedVoice;
   playbackSpeedSelect.value=Math.max(1,Math.min(1.5,parseFloat(settings.playbackSpeed)||1));
   playbackSpeedValue.textContent=formatPlaybackSpeed(playbackSpeedSelect.value);
@@ -266,7 +283,8 @@ function applySettings(settings){
 function handleSettingsChange(){
   applyTheme(themeToggle.checked);
   applyArithmeticMode(modeSelect.value);
-  selectedVoice=voiceSelect.value;
+  selectedVoice=resolveVoiceKey(voiceSelect.value);
+  voiceSelect.value=selectedVoice;
   intervalIncrement=parseInt(intervalIncrementSelect.value)||parseInt(defaultSettings.intervalIncrement);
   intervalIncrementValue.textContent=intervalIncrement;
   updateThresholdLabels();
@@ -555,7 +573,7 @@ function normalizeHistoryRecord(record){
     startingInterval:Math.max(100,Number(record?.startingInterval)||parseInt(defaultSettings.startingInterval)),
     minimumInterval:Math.max(100,Number(record?.minimumInterval)||parseInt(defaultSettings.minimumInterval)),
     intervalIncrement:Math.max(10,Number(record?.intervalIncrement)||parseInt(defaultSettings.intervalIncrement)),
-    voice:record?.voice || defaultSettings.voice,
+    voice:resolveVoiceKey(record?.voice,defaultSettings.voice),
     playbackSpeed:Math.max(1,Math.min(1.5,Number(record?.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed))),
     includeInTrends,
     thresholds:{
@@ -2993,23 +3011,30 @@ function updateSessionLimitUI(){
 }
 
 function formatVoiceLabel(voiceKey){
-  return voiceKey
+  const normalized=normalizeVoiceKey(voiceKey);
+  if(normalized==="samantha") return "Samantha";
+  if(normalized==="nathan") return "Nathan";
+  if(normalized==="enhancednathan") return "Enhanced Nathan";
+  if(normalized==="siri4") return "Siri 4";
+
+  const label=voiceKey
     .replace(/([a-zA-Z])(\d)/g,"$1 $2")
     .replace(/(\d)([a-zA-Z])/g,"$1 $2")
     .replace(/[-_]+/g," ")
     .replace(/\b\w/g,char=>char.toUpperCase());
+  return label;
 }
 
 function normalizeVoiceEntry(voiceKey,entry){
   if(typeof entry==="string"){
     return {
-      label:voiceKey,
+      label:formatVoiceLabel(voiceKey),
       basePath:`audio/${voiceKey}`
     };
   }
 
   return {
-    label:entry.label || voiceKey,
+    label:entry.label || formatVoiceLabel(voiceKey),
     basePath:entry.basePath || `audio/${voiceKey}`
   };
 }
@@ -3025,10 +3050,10 @@ async function discoverVoices(){
   mergeVoiceEntries(discovered,window.CCT_VOICE_LIBRARY);
 
   if(!Object.keys(discovered).length){
-    discovered.samantha={ label:"samantha", basePath:"audio/samantha" };
-    discovered.nathan={ label:"nathan", basePath:"audio/nathan" };
-    discovered.enhancednathan={ label:"enhancednathan", basePath:"audio/enhancednathan" };
-    discovered.siri4={ label:"siri4", basePath:"audio/siri4" };
+    discovered.samantha={ label:"Samantha", basePath:"audio/samantha" };
+    discovered.nathan={ label:"Nathan", basePath:"audio/nathan" };
+    discovered.enhancednathan={ label:"Enhanced Nathan", basePath:"audio/enhancednathan" };
+    discovered.siri4={ label:"Siri 4", basePath:"audio/siri4" };
   }
 
   voiceLibrary=discovered;
@@ -3052,7 +3077,7 @@ function populateVoiceSelect(){
   });
 
   if(!voices.some(([voiceKey])=>voiceKey===selectedVoice)){
-    selectedVoice=voices[0]?.[0] || "samantha";
+    selectedVoice=resolveVoiceKey(defaultSettings.voice,defaultSettings.voice);
   }
   voiceSelect.value=selectedVoice;
 }
@@ -3063,7 +3088,7 @@ function getClockTime(){
 
 function getVoiceConfig(voiceKey){
   const fallbackKey=Object.keys(voiceLibrary)[0];
-  return voiceLibrary[voiceKey] || voiceLibrary[fallbackKey] || { label:"samantha", basePath:"audio/samantha" };
+  return voiceLibrary[voiceKey] || voiceLibrary[fallbackKey] || { label:formatVoiceLabel(defaultSettings.voice), basePath:`audio/${defaultSettings.voice}` };
 }
 
 function getVoiceClipUrl(voiceKey,num){
@@ -3137,7 +3162,7 @@ function preloadVoice(voiceKey){
 
 async function testSelectedVoice(){
   if(voiceTestInProgress) return;
-  const voice=voiceSelect.value || selectedVoice;
+  const voice=resolveVoiceKey(voiceSelect.value || selectedVoice);
   if(!voice) return;
 
   voiceTestInProgress=true;
@@ -3201,7 +3226,7 @@ function stopStimulusAudioPlayback(){
 }
 
 function playStimulusAudio(num){
-  const voice=selectedVoice;
+  const voice=resolveVoiceKey(selectedVoice);
   const entry=voiceAudioCache[voice] || voiceAudioCache[Object.keys(voiceAudioCache)[0]];
   const template=entry&&entry.clips&&entry.clips[num];
   if(!template) return;
@@ -3602,7 +3627,8 @@ async function startGame(){
   const duration=Math.max(1,parseInt(durationInput.value)||parseInt(defaultSettings.duration))*60000;
   beepEnabled=beepToggle.checked;
   showIntervalTiming=showIntervalTimingToggle.checked;
-  selectedVoice=voiceSelect.value;
+  selectedVoice=resolveVoiceKey(voiceSelect.value);
+  voiceSelect.value=selectedVoice;
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
   await preloadVoice(selectedVoice);
   if(sessionState!=="starting") return;
