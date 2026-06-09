@@ -1406,6 +1406,12 @@ function getLocalCalendarDayStart(timestamp){
   return new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime();
 }
 
+function getNextLocalCalendarDayStart(timestamp){
+  const date=new Date(Number(timestamp)||0);
+  date.setDate(date.getDate()+1);
+  return new Date(date.getFullYear(),date.getMonth(),date.getDate()).getTime();
+}
+
 function addDailyTrendBucket(buckets,session,value,weight){
   const numericValue=Number(value);
   const numericWeight=Number(weight);
@@ -1430,16 +1436,42 @@ function addDailyTrendBucket(buckets,session,value,weight){
 }
 
 function finalizeDailyTrendBuckets(buckets){
-  return [...buckets.values()]
+  const sortedBuckets=[...buckets.values()]
     .sort((a,b)=>a.dayStart-b.dayStart)
-    .map(bucket=>({
-      dayKey:bucket.dayKey,
-      dayStart:bucket.dayStart,
-      value:bucket.weightTotal ? bucket.total / bucket.weightTotal : 0,
-      count:bucket.count,
-      weightTotal:bucket.weightTotal,
-      label:formatChartDateLabel(bucket.dayStart,false)
-    }));
+  if(!sortedBuckets.length) return [];
+
+  const bucketByDayKey=new Map(sortedBuckets.map(bucket=>[bucket.dayKey,bucket]));
+  const points=[];
+  let cursorDayStart=sortedBuckets[0].dayStart;
+  const lastDayStart=sortedBuckets[sortedBuckets.length-1].dayStart;
+
+  while(cursorDayStart<=lastDayStart){
+    const dayKey=getLocalCalendarDayKey(cursorDayStart);
+    const bucket=bucketByDayKey.get(dayKey);
+    if(bucket){
+      points.push({
+        dayKey:bucket.dayKey,
+        dayStart:bucket.dayStart,
+        value:bucket.weightTotal ? bucket.total / bucket.weightTotal : 0,
+        count:bucket.count,
+        weightTotal:bucket.weightTotal,
+        label:formatChartDateLabel(bucket.dayStart,false)
+      });
+    }else{
+      points.push({
+        dayKey,
+        dayStart:cursorDayStart,
+        value:null,
+        count:0,
+        weightTotal:0,
+        label:formatChartDateLabel(cursorDayStart,false),
+        isGap:true
+      });
+    }
+    cursorDayStart=getNextLocalCalendarDayStart(cursorDayStart);
+  }
+
+  return points;
 }
 
 function aggregateSessionsByDay(sessions,valueGetter,weightGetter){
@@ -2245,8 +2277,16 @@ function renderLatestIntervalChartDetail(latestTrace,detailBlock){
 
 function renderLineChart(container,config){
   const detailsEl=container.id ? document.getElementById(container.id.replace(/Chart$/,"Details")) : null;
-  const values=Array.isArray(config.values) ? config.values.filter(value=>Number.isFinite(Number(value))) : [];
-  if(!values.length){
+  const rawValues=Array.isArray(config.values) ? config.values.slice() : [];
+  const xValuesRaw=Array.isArray(config.xValues) ? config.xValues.map(value=>Number(value)) : null;
+  const slotCount=Math.max(rawValues.length, xValuesRaw ? xValuesRaw.length : 0);
+  const numericValues=rawValues.map(value=>{
+    if(value===null || value===undefined || value==="") return null;
+    const numeric=Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  });
+  const finiteValues=numericValues.filter(value=>Number.isFinite(value));
+  if(!slotCount || !finiteValues.length){
     clearChartInteractions(container);
     ensureChartSurface(container).innerHTML=`<div class="chart-empty">${escapeSvgText(config.emptyMessage || "No data available.")}</div>`;
     if(detailsEl){
@@ -2261,10 +2301,10 @@ function renderLineChart(container,config){
   const margin={ top:18, right:18, bottom:50, left:60 };
   const innerWidth=width-margin.left-margin.right;
   const innerHeight=height-margin.top-margin.bottom;
-  let min=Number.isFinite(config.yMin) ? config.yMin : Math.min(...values);
-  let max=Number.isFinite(config.yMax) ? config.yMax : Math.max(...values);
-  const xValues=Array.isArray(config.xValues) ? config.xValues.map(value=>Number(value)) : null;
-  const hasXValues=Array.isArray(xValues) && xValues.length===values.length && xValues.every(Number.isFinite);
+  let min=Number.isFinite(config.yMin) ? config.yMin : Math.min(...finiteValues);
+  let max=Number.isFinite(config.yMax) ? config.yMax : Math.max(...finiteValues);
+  const xValues=xValuesRaw && xValuesRaw.length===slotCount && xValuesRaw.every(Number.isFinite) ? xValuesRaw : null;
+  const hasXValues=Array.isArray(xValues) && xValues.length===slotCount;
 
   if(min===max){
     min-=1;
@@ -2280,7 +2320,7 @@ function renderLineChart(container,config){
   }
 
   const safeRange=max-min || 1;
-  const pointCount=values.length;
+  const pointCount=slotCount;
   const xMin=hasXValues ? Math.min(...xValues) : 0;
   const xMax=hasXValues ? Math.max(...xValues) : Math.max(1,pointCount-1);
   const xSafeRange=Math.max(1,xMax-xMin);
@@ -2292,11 +2332,17 @@ function renderLineChart(container,config){
     return margin.left + (innerWidth*(index/(pointCount-1)));
   };
   const yPosition=value=>margin.top + innerHeight - (((value-min)/safeRange)*innerHeight);
-  const points=values.map((value,index)=>({
-    x:xPosition(index),
-    y:yPosition(value)
-  }));
-  const path=points.map((point,index)=>(index===0 ? "M" : "L") + " " + point.x.toFixed(2) + " " + point.y.toFixed(2)).join(" ");
+  const points=numericValues.map((numeric,index)=>{
+    if(!Number.isFinite(numeric)) return null;
+    return {
+      x:xPosition(index),
+      y:yPosition(numeric)
+    };
+  });
+  const path=points
+    .filter(Boolean)
+    .map((point,index)=>(index===0 ? "M" : "L") + " " + point.x.toFixed(2) + " " + point.y.toFixed(2))
+    .join(" ");
   const xLabelIndices=config.xLabelMode==="questionNumber"
     ? getQuestionLabelIndices(pointCount)
     : getLabelIndices(pointCount,config.maxXLabels || 6);
@@ -2335,6 +2381,7 @@ function renderLineChart(container,config){
 
   if(showPoints){
     points.forEach((point,index)=>{
+      if(!point) return;
       const title=config.pointTitles && config.pointTitles[index] ? config.pointTitles[index] : "";
       const radius=pointRadius !== null ? pointRadius : (pointCount===1 ? 5 : 4.5);
       svg+=`<circle class="chart-point" data-point-index="${index}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${radius}" fill="${pointFill}" stroke="${pointStroke}" stroke-width="2" aria-label="${escapeSvgText(title || `Point ${index + 1}`)}"></circle>`;
@@ -2359,14 +2406,14 @@ function renderLineChart(container,config){
   svg+="</svg>";
   ensureChartSurface(container).innerHTML=svg;
 
-  const pointMeta=Array.isArray(config.pointMeta) ? config.pointMeta : values.map((value,index)=>({
+  const pointMeta=Array.isArray(config.pointMeta) ? config.pointMeta : rawValues.map((value,index)=>({
     xExactLabel:config.xLabels && config.xLabels[index] ? config.xLabels[index] : String(index + 1),
-    yExactLabel:config.yFormatter ? config.yFormatter(value) : formatChartValue(value),
+    yExactLabel:Number.isFinite(numericValues[index]) ? (config.yFormatter ? config.yFormatter(numericValues[index]) : formatChartValue(numericValues[index])) : "",
     summary:`Point ${index + 1}`
   }));
   const mergedPointMeta=pointMeta.map((point,index)=>({
     ...point,
-    xPercent:points[index] ? (points[index].x / width) * 100 : (pointCount===1 ? 50 : (index/(pointCount-1))*100),
+    xPercent:xPosition(index) / width * 100,
     yPercent:points[index] ? (points[index].y / height) * 100 : 50
   }));
 
