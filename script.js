@@ -5,7 +5,9 @@ let correctStreak=0, wrongStreak=0;
 let gameRunning=false, timeoutId, endTime;
 let awaitingAnswer=false, beepEnabled=true;
 let sessionState="idle";
-let nextStimulusTime=0, isStimulusTick=false;
+let isStimulusTick=false;
+let stimulusScheduleSerial=0;
+let lastStimulusAt=0;
 let endCondition="timer", targetCorrect=50, correctAnswers=0;
 let arithmeticMode="addition";
 let sessionStartedAt=0, sessionEndedAt=0;
@@ -16,6 +18,7 @@ let currentSessionId="";
 let historyVisible=false;
 let historyFilterVisible=false;
 let sessionIntervalTrace=[];
+let activeQuestionState=null;
 let historyChartMode=null;
 let historyChartModeIsUserSelected=false;
 let historyPageIndex=0;
@@ -62,6 +65,7 @@ let voiceAudioCache={};
 let activeStimulusAudios=new Set();
 let voiceLibrary={};
 let voiceTestInProgress=false;
+let beepAudioContext=null;
 
 function clampInteger(value,fallback,min,max){
   const parsed=parseInt(value,10);
@@ -257,7 +261,6 @@ function applySettings(settings){
   applyAdvancedSettingsVisibility(settings.showAdvancedSettings);
   applyIntervalTimingVisibility(settings.showIntervalTiming);
   updateEndConditionControls();
-  void preloadVoice(selectedVoice);
 }
 
 function handleSettingsChange(){
@@ -272,7 +275,13 @@ function handleSettingsChange(){
   playbackSpeedValue.textContent=formatPlaybackSpeed(playbackSpeed);
   applyAdvancedSettingsVisibility(showAdvancedSettingsToggle.checked);
   applyIntervalTimingVisibility(showIntervalTimingToggle.checked);
-  void preloadVoice(selectedVoice);
+  if(sessionState==="active"){
+    void preloadVoice(selectedVoice).then(()=>{
+      if(sessionState==="active"){
+        retainOnlyVoiceCache(selectedVoice);
+      }
+    }).catch(()=>{});
+  }
   updateEndConditionControls();
   saveSettings();
 }
@@ -1894,15 +1903,15 @@ function getNiceMsTicks(min,max,desiredTickCount=5){
 
 function getLatestIntervalTargetBlockCount(chartWidth=720){
   const usableWidth=Math.max(320,chartWidth-140);
-  return Math.max(12,Math.min(24,Math.round(usableWidth/40)));
+  return Math.max(22,Math.min(60,Math.round(usableWidth/13)));
 }
 
 function getLatestIntervalBlockSize(pointCount,chartWidth=720){
-  if(pointCount<=30) return 1;
+  if(pointCount<=75) return 1;
 
   const targetBlocks=getLatestIntervalTargetBlockCount(chartWidth);
   const rawStep=Math.max(1,Math.ceil(pointCount/targetBlocks));
-  const niceSteps=[5,10,20,25,50,75,100,125,150,200,250,300,400,500,750,1000,1500,2000,2500,5000];
+  const niceSteps=[2,3,4,5,6,8,10,12,15,20,25,30,40,50,75,100,125,150,200,250,300,400,500,750,1000,1500,2000,2500,5000];
   return niceSteps.find(value=>value>=rawStep) || niceSteps[niceSteps.length-1];
 }
 
@@ -3015,6 +3024,14 @@ function getVoiceClipUrl(voiceKey,num){
   return `${voice.basePath}/${num}.mp3`;
 }
 
+function retainOnlyVoiceCache(voiceKey){
+  Object.keys(voiceAudioCache).forEach(key=>{
+    if(key!==voiceKey){
+      delete voiceAudioCache[key];
+    }
+  });
+}
+
 function shouldPreloadAudio(){
   return window.location && window.location.protocol !== "file:";
 }
@@ -3142,6 +3159,8 @@ function playStimulusAudio(num){
   const template=entry&&entry.clips&&entry.clips[num];
   if(!template) return;
 
+  stopStimulusAudioPlayback();
+
   const audio=template.cloneNode(true);
   audio.playbackRate=playbackSpeed;
   audio.currentTime=0;
@@ -3160,23 +3179,52 @@ function playStimulusAudio(num){
   }
 }
 
-function updateLatestTraceResponseTime(responseTime){
+function updateLatestTraceResponseTime(responseTime,traceIndex=sessionIntervalTrace.length-1){
   if(!sessionIntervalTrace.length) return;
-  const lastPoint=sessionIntervalTrace[sessionIntervalTrace.length-1];
-  if(!lastPoint) return;
+  const index=Math.max(0,Math.min(sessionIntervalTrace.length-1,Math.floor(Number(traceIndex)||0)));
+  const point=sessionIntervalTrace[index];
+  if(!point) return;
   const numeric=Number(responseTime);
   if(!Number.isFinite(numeric)) return;
-  lastPoint.responseTime=Math.max(0,numeric);
+  point.responseTime=Math.max(0,numeric);
 }
 
 function playBeep(){
   if(!beepEnabled)return;
-  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const AudioContextCtor=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContextCtor) return;
+
+  if(!beepAudioContext){
+    beepAudioContext=new AudioContextCtor();
+  }
+
+  const ctx=beepAudioContext;
+  if(ctx.state==="suspended" && typeof ctx.resume==="function"){
+    void ctx.resume();
+  }
+
   const o=ctx.createOscillator();
   const g=ctx.createGain();
   o.frequency.value=1200; g.gain.value=0.1;
   o.connect(g); g.connect(ctx.destination);
   o.start(); o.stop(ctx.currentTime+0.12);
+  o.onended=()=>{
+    try{
+      o.disconnect();
+      g.disconnect();
+    }catch(e){}
+  };
+}
+
+async function closeBeepAudioContext(){
+  if(!beepAudioContext) return;
+  const ctx=beepAudioContext;
+  beepAudioContext=null;
+  try{
+    if(typeof ctx.close==="function" && ctx.state!=="closed"){
+      await ctx.close();
+    }
+  }catch(e){}
 }
 
 function getRandomNumber(){return Math.floor(Math.random()*9)+1;}
@@ -3279,12 +3327,7 @@ function changeInterval(newInterval){
   resetFeedbackIndicators();
 
   if(gameRunning&&!isStimulusTick){
-    if(interval<previousInterval && nextStimulusTime){
-      nextStimulusTime=Math.max(now,nextStimulusTime-(previousInterval-interval));
-    }else{
-      nextStimulusTime=now+interval;
-    }
-    scheduleNextStimulus();
+    scheduleNextStimulusFromLastStimulus();
   }
 }
 
@@ -3304,11 +3347,11 @@ function adjustDifficulty(){
   document.getElementById("currentInterval").textContent=interval;
 }
 
-function recordScoredItem(isCorrect,responseTime){
+function recordScoredItem(isCorrect,responseTime,traceIndex=sessionIntervalTrace.length-1){
   feedback.push(isCorrect);
   responseTimes.push(Math.max(0,responseTime));
   if(isCorrect) correctAnswers++;
-  updateLatestTraceResponseTime(responseTime);
+  updateLatestTraceResponseTime(responseTime,traceIndex);
 }
 
 function clearPendingAnswer(){
@@ -3316,6 +3359,67 @@ function clearPendingAnswer(){
   responseStartedAt=0;
   responseInterval=0;
   answer.value="";
+}
+
+function resetQuestionStates(){
+  activeQuestionState=null;
+}
+
+function createQuestionState(startedAt){
+  const traceIndex=Math.max(0,sessionIntervalTrace.length-1);
+  return {
+    startedAt,
+    responseInterval:interval,
+    expectedAnswer:numbers.length>=2 ? getExpectedAnswer(numbers[numbers.length-2],numbers[numbers.length-1]) : null,
+    traceIndex,
+    resolved:false
+  };
+}
+
+function finalizeQuestionState(questionState,submittedValue,finalizedAt){
+  if(!questionState || questionState.resolved) return false;
+
+  const resolvedAt=Number.isFinite(Number(finalizedAt)) ? Number(finalizedAt) : getClockTime();
+  const isCorrect=isCorrectAnswerInput(questionState,submittedValue,resolvedAt);
+  const responseTime=isCorrect
+    ? Math.min(Math.max(0,questionState.startedAt ? resolvedAt-questionState.startedAt : 0),questionState.responseInterval || interval)
+    : (questionState.responseInterval || interval);
+
+  questionState.resolved=true;
+
+  if(questionState===activeQuestionState){
+    clearPendingAnswer();
+  }
+
+  recordScoredItem(isCorrect,responseTime,questionState.traceIndex);
+
+  if(isCorrect){
+    setFeedbackIndicators("green",correctStreak+1);
+    correctStreak++;
+    wrongStreak=0;
+    adjustDifficulty();
+    updateSessionLimitUI();
+    if(endCondition==="correct"&&correctAnswers>=targetCorrect){
+      stopGame("completed");
+    }
+  }else{
+    setFeedbackIndicators("red",wrongStreak+1);
+    wrongStreak++;
+    correctStreak=0;
+    playBeep();
+    adjustDifficulty();
+  }
+
+  return isCorrect;
+}
+
+function isCorrectAnswerInput(questionState,submittedValue,finalizedAt){
+  if(!questionState || questionState.resolved) return false;
+
+  const normalizedValue=String(submittedValue ?? "").trim();
+  return normalizedValue!==""
+    && questionState.expectedAnswer!==null
+    && normalizedValue===String(questionState.expectedAnswer);
 }
 
 function isAllowedSessionClick(target){
@@ -3330,35 +3434,6 @@ function restoreAnswerFocus(){
   }catch(e){
     answer.focus();
   }
-}
-
-function registerWrong(){
-  recordScoredItem(false,responseInterval||interval);
-  setFeedbackIndicators("red",wrongStreak+1);
-  wrongStreak++;
-  correctStreak=0;
-  clearPendingAnswer();
-  playBeep();
-  adjustDifficulty();
-}
-
-function finalizePendingAnswer(){
-  if(awaitingAnswer && numbers.length>=2){
-    if(answer.value.trim()===""){
-      updateLatestTraceResponseTime(responseInterval||interval);
-    }else{
-      const val=parseInt(answer.value);
-      const correct=getExpectedAnswer(numbers[numbers.length-2],numbers[numbers.length-1]);
-
-      if(val===correct){
-        recordScoredItem(true,Math.min(Math.max(0,responseStartedAt?getClockTime()-responseStartedAt:0),responseInterval||interval));
-      }else{
-        recordScoredItem(false,responseInterval||interval);
-      }
-    }
-  }
-
-  clearPendingAnswer();
 }
 
 function formatPercent(value){
@@ -3395,17 +3470,26 @@ function renderResults(){
   resultStatus.textContent=sessionOutcome;
 }
 
-function scheduleNextStimulus(){
+function scheduleNextStimulus(delay=interval){
   if(!gameRunning)return;
 
+  const scheduleSerial=++stimulusScheduleSerial;
   clearTimeout(timeoutId);
-  const delay=Math.max(0,nextStimulusTime-getClockTime());
-  timeoutId=setTimeout(runStimulus,delay);
+  timeoutId=setTimeout(()=>{
+    if(!gameRunning || scheduleSerial!==stimulusScheduleSerial) return;
+    runStimulus();
+  },Math.max(0,delay));
+}
+
+function scheduleNextStimulusFromLastStimulus(){
+  if(!gameRunning) return;
+  const anchorAt=lastStimulusAt || getClockTime();
+  scheduleNextStimulus((anchorAt + interval) - getClockTime());
 }
 
 function startStimulusScheduler(){
-  nextStimulusTime=getClockTime();
-  scheduleNextStimulus();
+  lastStimulusAt=getClockTime()-interval;
+  scheduleNextStimulusFromLastStimulus();
 }
 
 function runStimulus(){
@@ -3413,10 +3497,15 @@ function runStimulus(){
 
   isStimulusTick=true;
 
-  if(awaitingAnswer && numbers.length>=2) registerWrong();
+  const expiredQuestionState=activeQuestionState;
+  if(expiredQuestionState && !expiredQuestionState.resolved){
+    finalizeQuestionState(expiredQuestionState,answer.value,getClockTime());
+  }
 
   const num=getRandomNumber();
   const now=getClockTime();
+  lastStimulusAt=now;
+  clearPendingAnswer();
   numbers.push(num);
   sessionIntervalTrace.push({
     questionNumber:numbers.length,
@@ -3430,18 +3519,16 @@ function runStimulus(){
     awaitingAnswer=true;
     responseStartedAt=now;
     responseInterval=interval;
+    activeQuestionState=createQuestionState(now);
   }else{
     clearPendingAnswer();
-  }
-
-  nextStimulusTime+=interval;
-
-  if(nextStimulusTime<=now){
-    nextStimulusTime=now+interval;
+    activeQuestionState=null;
   }
 
   isStimulusTick=false;
-  scheduleNextStimulus();
+  if(gameRunning){
+    scheduleNextStimulusFromLastStimulus();
+  }
 }
 
 function updateTimer(){
@@ -3472,6 +3559,7 @@ async function startGame(){
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
   await preloadVoice(selectedVoice);
   if(sessionState!=="starting") return;
+  retainOnlyVoiceCache(selectedVoice);
 
   numbers=[]; feedback=[]; responseTimes=[];
   correctStreak=0; wrongStreak=0;
@@ -3480,6 +3568,7 @@ async function startGame(){
   sessionOutcome="Completed";
   intervalCounts={}; intervalTime={};
   sessionIntervalTrace=[];
+  resetQuestionStates();
   resetFeedbackIndicators();
   applyIntervalTimingVisibility(showIntervalTiming);
   sessionStartedAt=Date.now();
@@ -3527,8 +3616,19 @@ function stopGame(reason="manual"){
   gameRunning=false;
   clearTimeout(timeoutId);
   stopStimulusAudioPlayback();
-  finalizePendingAnswer();
+  void closeBeepAudioContext();
+
+  if(awaitingAnswer && numbers.length>=2 && activeQuestionState){
+    if(answer.value.trim()===""){
+      updateLatestTraceResponseTime(responseInterval||interval,activeQuestionState.traceIndex);
+    }else{
+      finalizeQuestionState(activeQuestionState,answer.value,getClockTime());
+    }
+  }
+  clearPendingAnswer();
+
   answer.blur();
+  resetQuestionStates();
 
   // finalize last interval
   if(showIntervalTiming && currentIntervalStart){
@@ -3551,29 +3651,15 @@ function stopGame(reason="manual"){
   setSessionState("results");
 }
 
-function checkInputLive(){
+function checkInputLive(event){
   if(sessionState!=="active") return;
-  if(!awaitingAnswer || numbers.length<2)return;
+  if(!awaitingAnswer || numbers.length<2 || !activeQuestionState || activeQuestionState.resolved) return;
 
-  const val=parseInt(answer.value);
-  const correct=getExpectedAnswer(numbers[numbers.length-2],numbers[numbers.length-1]);
+  const submittedValue=answer.value.trim();
+  if(submittedValue==="") return;
 
-  if(val===correct){
-    const elapsed=responseStartedAt?getClockTime()-responseStartedAt:0;
-    const responseTime=Math.min(Math.max(0,elapsed),responseInterval||interval);
-    recordScoredItem(true,responseTime);
-    setFeedbackIndicators("green",correctStreak+1);
-    correctStreak++;
-    wrongStreak=0;
-
-    clearPendingAnswer();
-
-    adjustDifficulty();
-    updateSessionLimitUI();
-
-    if(endCondition==="correct"&&correctAnswers>=targetCorrect){
-      stopGame("completed");
-    }
+  if(isCorrectAnswerInput(activeQuestionState,submittedValue,getClockTime())){
+    finalizeQuestionState(activeQuestionState,submittedValue,getClockTime());
   }
 }
 
