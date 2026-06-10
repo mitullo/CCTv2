@@ -2831,6 +2831,9 @@ function renderHistorySessionsSection(viewData){
     const duration=document.createElement("span");
     duration.textContent="Duration: " + formatDuration(Number(session.durationMs)||0);
 
+    const averageResponse=document.createElement("span");
+    averageResponse.textContent="Average Response Time: " + Math.round(Number(session.averageResponseTimeMs)||0) + " ms";
+
     const correct=document.createElement("span");
     correct.textContent="Correct: " + (Number(session.correctAnswers)||0);
 
@@ -2848,6 +2851,7 @@ function renderHistorySessionsSection(viewData){
 
     meta.appendChild(accuracy);
     meta.appendChild(duration);
+    meta.appendChild(averageResponse);
     meta.appendChild(correct);
     meta.appendChild(questions);
     meta.appendChild(mode);
