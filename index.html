@@ -297,6 +297,15 @@
 
     <div id="advancedSections" class="advanced-sections hidden">
       <section class="settings-section">
+        <div class="section-header">Beep Audio</div>
+        <label class="field">
+          <span>Beep volume <strong id="beepVolumeValue">50%</strong></span>
+          <input type="range" id="beepVolume" min="0" max="100" step="1" value="50">
+        </label>
+        <button id="beepTestBtn" class="secondary-button" type="button">Test Beep</button>
+      </section>
+
+      <section class="settings-section">
         <div class="section-header">
           <span>Threshold Settings</span>
           <span class="threshold-help">

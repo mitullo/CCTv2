@@ -38,6 +38,10 @@ const EMPTY_HISTORY_STATS={
 };
 const SETTINGS_KEY="cctSettings";
 const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference"]);
+const DEFAULT_BEEP_GAIN=0.12;
+const DEFAULT_BEEP_VOLUME_PERCENT=50;
+const MAX_BEEP_VOLUME_PERCENT=100;
+const MAX_BEEP_GAIN=0.52;
 const defaultSettings={
   startingInterval:"1500",
   minimumInterval:"700",
@@ -50,6 +54,7 @@ const defaultSettings={
   mode:"addition",
   voice:"nathan",
   playbackSpeed:"1",
+  beepVolume:String(DEFAULT_BEEP_VOLUME_PERCENT),
   beepEnabled:true,
   darkMode:false,
   showAdvancedSettings:false,
@@ -61,6 +66,7 @@ let feedbackIndicatorColor=null, feedbackIndicatorCount=0;
 let showIntervalTiming=false;
 let selectedVoice="";
 let playbackSpeed=1;
+let beepVolume=DEFAULT_BEEP_VOLUME_PERCENT;
 let voiceAudioCache={};
 let activeStimulusAudios=new Set();
 let voiceLibrary={};
@@ -79,6 +85,26 @@ function parsePositiveInteger(value,fallback,min=1){
 
 function coercePositiveNumber(value,fallback,min=1){
   return Math.max(min,Number(value)||Number(fallback)||min);
+}
+
+function clampBeepVolumePercent(value,fallback=defaultSettings.beepVolume){
+  const parsed=Number(value);
+  const fallbackParsed=Number(fallback);
+  const resolved=Number.isFinite(parsed) ? parsed : (Number.isFinite(fallbackParsed) ? fallbackParsed : DEFAULT_BEEP_VOLUME_PERCENT);
+  return Math.max(0,Math.min(MAX_BEEP_VOLUME_PERCENT,resolved));
+}
+
+function normalizeBeepVolumeSetting(value,fallback=defaultSettings.beepVolume){
+  const parsed=Number(value);
+  if(!Number.isInteger(parsed) || parsed<0 || parsed>MAX_BEEP_VOLUME_PERCENT){
+    return clampBeepVolumePercent(fallback);
+  }
+  return parsed;
+}
+
+function getBeepGain(){
+  const level=normalizeBeepVolumeSetting(beepVolume)/MAX_BEEP_VOLUME_PERCENT;
+  return Math.pow(level,2)*MAX_BEEP_GAIN;
 }
 
 function normalizeVoiceKey(value){
@@ -107,6 +133,7 @@ function normalizeSavedSettings(parsed){
   const targetCorrect=String(Math.max(1,clampInteger(parsed.targetCorrect,defaultSettings.targetCorrect,1,9999)));
   const mode=ARITHMETIC_MODES.has(parsed.mode) ? parsed.mode : defaultSettings.mode;
   const voice=resolveVoiceKey(parsed.voice,defaultSettings.voice);
+  const beepVolume=String(normalizeBeepVolumeSetting(parsed.beepVolume,defaultSettings.beepVolume));
 
   return {
     ...defaultSettings,
@@ -121,6 +148,7 @@ function normalizeSavedSettings(parsed){
     mode,
     voice,
     playbackSpeed:String(Math.max(1,Math.min(1.5,parseFloat(parsed.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed)))),
+    beepVolume,
     showAdvancedSettings:!!parsed.showAdvancedSettings,
     showIntervalTiming:!!parsed.showIntervalTiming,
     beepEnabled:parsed.beepEnabled ?? defaultSettings.beepEnabled,
@@ -199,6 +227,7 @@ function getSettingsFromForm(){
     mode:modeSelect.value,
     voice:resolveVoiceKey(voiceSelect.value || selectedVoice),
     playbackSpeed:playbackSpeedSelect.value,
+    beepVolume:beepVolumeSelect.value,
     beepEnabled:beepToggle.checked,
     darkMode:themeToggle.checked,
     showAdvancedSettings:showAdvancedSettingsToggle.checked,
@@ -228,6 +257,10 @@ function applyTheme(isDark){
 function formatPlaybackSpeed(value){
   const normalized=Math.max(1,Math.min(1.5,parseFloat(value)||1));
   return normalized.toFixed(1).replace(/\.0$/,"") + "x";
+}
+
+function formatBeepVolume(value){
+  return normalizeBeepVolumeSetting(value).toFixed(0) + "%";
 }
 
 function updateThresholdLabels(){
@@ -265,6 +298,9 @@ function applySettings(settings){
   voiceSelect.value=selectedVoice;
   playbackSpeedSelect.value=Math.max(1,Math.min(1.5,parseFloat(settings.playbackSpeed)||1));
   playbackSpeedValue.textContent=formatPlaybackSpeed(playbackSpeedSelect.value);
+  beepVolumeSelect.value=normalizeBeepVolumeSetting(settings.beepVolume);
+  beepVolumeValue.textContent=formatBeepVolume(beepVolumeSelect.value);
+  beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
   beepToggle.checked=settings.beepEnabled;
   themeToggle.checked=settings.darkMode;
   showIntervalTimingToggle.checked=settings.showIntervalTiming;
@@ -291,6 +327,8 @@ function handleSettingsChange(){
   updateFeedbackUI();
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
   playbackSpeedValue.textContent=formatPlaybackSpeed(playbackSpeed);
+  beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
+  beepVolumeValue.textContent=formatBeepVolume(beepVolume);
   applyAdvancedSettingsVisibility(showAdvancedSettingsToggle.checked);
   applyIntervalTimingVisibility(showIntervalTimingToggle.checked);
   if(sessionState==="active"){
@@ -3265,8 +3303,8 @@ function updateLatestTraceResponseTime(responseTime,traceIndex=sessionIntervalTr
   point.responseTime=Math.max(0,numeric);
 }
 
-function playBeep(){
-  if(!beepEnabled)return;
+function playBeep(force=false){
+  if(!force && !beepEnabled)return;
   const AudioContextCtor=window.AudioContext||window.webkitAudioContext;
   if(!AudioContextCtor) return;
 
@@ -3281,7 +3319,7 @@ function playBeep(){
 
   const o=ctx.createOscillator();
   const g=ctx.createGain();
-  o.frequency.value=1200; g.gain.value=0.1;
+  o.frequency.value=1200; g.gain.value=getBeepGain();
   o.connect(g); g.connect(ctx.destination);
   o.start(); o.stop(ctx.currentTime+0.12);
   o.onended=()=>{
@@ -3767,6 +3805,9 @@ const thresholdInfoBtn=document.getElementById("thresholdInfoBtn");
 const voiceSelect=document.getElementById("voiceSelect");
 const voiceTestBtn=document.getElementById("voiceTestBtn");
 const playbackSpeedSelect=document.getElementById("playbackSpeedSelect");
+const beepVolumeSelect=document.getElementById("beepVolume");
+const beepVolumeValue=document.getElementById("beepVolumeValue");
+const beepTestBtn=document.getElementById("beepTestBtn");
 const beepToggle=document.getElementById("beepToggle");
 const themeToggle=document.getElementById("themeToggle");
 const showIntervalTimingToggle=document.getElementById("showIntervalTimingToggle");
@@ -3838,6 +3879,7 @@ const settingsControls=[
   showAdvancedSettingsToggle,
   voiceSelect,
   playbackSpeedSelect,
+  beepVolumeSelect,
   beepToggle,
   themeToggle,
   showIntervalTimingToggle
@@ -3947,6 +3989,9 @@ historyNextPageBtn.onclick=()=>{
 };
 voiceTestBtn.onclick=()=>{
   void testSelectedVoice();
+};
+beepTestBtn.onclick=()=>{
+  playBeep(true);
 };
 normalThresholdPresetBtn.onclick=()=>applyThresholdPreset(4,4);
 highAccuracyPresetBtn.onclick=()=>applyThresholdPreset(5,3);
