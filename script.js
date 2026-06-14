@@ -1411,16 +1411,17 @@ function escapeSvgText(value){
 
 function getLabelIndices(count,maxLabels){
   if(count<=0) return [];
-  if(count<=maxLabels) return Array.from({ length: count }, (_,index)=>index);
+  if(count<=8) return Array.from({ length: count }, (_,index)=>index);
 
-  const indices=[0,count-1];
-  const steps=maxLabels-1;
-  const span=count-1;
+  const safeMaxLabels=Math.max(2,Number(maxLabels)||2);
+  const step=Math.max(1,Math.ceil((count-1)/(safeMaxLabels-1)));
+  const indices=[0];
 
-  for(let i=1;i<steps;i++){
-    indices.push(Math.round((span/steps)*i));
+  for(let index=step; index<count-1; index+=step){
+    indices.push(index);
   }
 
+  indices.push(count-1);
   return [...new Set(indices)].sort((a,b)=>a-b);
 }
 
@@ -1971,19 +1972,62 @@ function buildChartPath(points){
   return path.trim();
 }
 
+function getNiceTickStep(rawStep){
+  const safeStep=Math.max(1,Number(rawStep)||1);
+  const magnitude=Math.pow(10,Math.floor(Math.log10(safeStep)));
+  const normalized=safeStep/magnitude;
+  const niceMultipliers=[1,2,2.5,5,10];
+  const multiplier=niceMultipliers.find(value=>value>=normalized) || 10;
+  return multiplier*magnitude;
+}
+
 function getNiceMsTicks(min,max,desiredTickCount=5){
+  return getHumanFriendlyMsTicks(min,max,desiredTickCount);
+}
+
+function getHumanFriendlyMsTicks(min,max,desiredTickCount=5,chartHeight=260){
   const safeMin=Number.isFinite(min) ? min : 0;
   const safeMax=Number.isFinite(max) ? max : safeMin + 1;
   const range=Math.max(1,safeMax-safeMin);
-  const rawStep=range/Math.max(1,desiredTickCount);
-  const preferredStep=Math.max(100,Math.ceil(rawStep/100)*100);
-  const tickStep=preferredStep;
-  const tickMin=Math.floor(safeMin/tickStep)*tickStep;
-  const tickMax=Math.ceil(safeMax/tickStep)*tickStep;
+  const pad=Math.max(range*0.08,5);
+  const paddedRange=Math.max(1,(safeMax + pad) - (safeMin - pad));
+  const innerHeight=Math.max(120,Number(chartHeight)||260);
+  const maxTickCount=11;
+  const minTickCount=5;
+  const rawStep=paddedRange/Math.max(1,desiredTickCount-1);
+  const rawMagnitude=Math.pow(10,Math.floor(Math.log10(Math.max(1,rawStep))));
+  const candidateMagnitudes=[1,2,2.5,5,10];
+  const candidateSteps=[];
+
+  for(let exponent=Math.floor(Math.log10(Math.max(1,rawStep)))-1; exponent<=Math.floor(Math.log10(Math.max(1,rawStep)))+2; exponent++){
+    const magnitude=Math.pow(10,exponent);
+    candidateMagnitudes.forEach(multiplier=>{
+      const step=multiplier*magnitude;
+      if(step>=5) candidateSteps.push(step);
+    });
+  }
+
+  candidateSteps.push(rawMagnitude);
+  const uniqueCandidateSteps=[...new Set(candidateSteps.filter(value=>Number.isFinite(value) && value>=5))].sort((a,b)=>a-b);
+  let chosenStep=uniqueCandidateSteps[uniqueCandidateSteps.length-1] || Math.max(10,getNiceTickStep(rawStep));
+
+  for(const step of uniqueCandidateSteps){
+    const tickMin=Math.floor((safeMin-pad)/step)*step;
+    const tickMax=Math.ceil((safeMax+pad)/step)*step;
+    const tickCount=Math.round((tickMax-tickMin)/step)+1;
+    if(tickCount>=minTickCount && tickCount<=maxTickCount){
+      chosenStep=step;
+      break;
+    }
+  }
+
+  const tickStep=Math.max(5,chosenStep);
+  const tickMin=Math.floor((safeMin-pad)/tickStep)*tickStep;
+  const tickMax=Math.ceil((safeMax+pad)/tickStep)*tickStep;
   const ticks=[];
 
   for(let value=tickMin; value<=tickMax + tickStep/2; value+=tickStep){
-    ticks.push(value);
+    ticks.push(Math.round(value));
   }
 
   return { ticks, tickStep, tickMin, tickMax };
@@ -2136,7 +2180,6 @@ function renderLatestIntervalChartOverview(latestTrace,overviewData){
     yMin:overviewMin,
     yMax:overviewMax,
     xAxisLabel:"Question blocks",
-    yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time overview chart",
     emptyMessage:"No interval data is available yet.",
       yFormatter:value=>formatChartValue(value," ms"),
@@ -2223,7 +2266,6 @@ function renderLatestIntervalChartRaw(latestTrace){
     yMin:rawMin,
     yMax:rawMax,
     xAxisLabel:"Question number",
-    yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time chart",
     emptyMessage:"No interval data is available yet.",
       yFormatter:value=>formatChartValue(value," ms"),
@@ -2308,7 +2350,6 @@ function renderLatestIntervalChartDetail(latestTrace,detailBlock){
     yMin:detailMin,
     yMax:detailMax,
     xAxisLabel:"Question number",
-    yAxisLabel:"Time (ms)",
     ariaLabel:"Latest session interval and response time chart",
     emptyMessage:"No interval data is available yet.",
       yFormatter:value=>formatChartValue(value," ms"),
@@ -2354,7 +2395,7 @@ function renderLineChart(container,config){
 
   const width=720;
   const height=260;
-  const margin={ top:18, right:18, bottom:50, left:60 };
+  const margin=config.margin || { top:18, right:18, bottom:50, left:60 };
   const innerWidth=width-margin.left-margin.right;
   const innerHeight=height-margin.top-margin.bottom;
   let min=Number.isFinite(config.yMin) ? config.yMin : Math.min(...finiteValues);
@@ -2373,6 +2414,23 @@ function renderLineChart(container,config){
 
   if(config.floorAtZero && min>0){
     min=0;
+  }
+  if(config.floorAtZero && min<0){
+    min=0;
+  }
+  if(max<=min){
+    max=min+1;
+  }
+
+  const yTickStep=Number.isFinite(config.yTickStep) && config.yTickStep>0 ? config.yTickStep : null;
+  const yTicksInfo=config.yTickMode==="niceMs" ? getHumanFriendlyMsTicks(min,max,config.desiredYTickCount || 5) : null;
+  if(yTicksInfo){
+    min=yTicksInfo.tickMin;
+    max=yTicksInfo.tickMax;
+  }
+  if(yTickStep){
+    min=Math.floor(min/yTickStep)*yTickStep;
+    max=Math.ceil(max/yTickStep)*yTickStep;
   }
 
   const safeRange=max-min || 1;
@@ -2403,7 +2461,8 @@ function renderLineChart(container,config){
     ? getQuestionLabelIndices(pointCount)
     : getLabelIndices(pointCount,config.maxXLabels || 6);
   const tickCount=4;
-  const yTicks=Array.from({ length: tickCount + 1 }, (_,index)=>min + (safeRange*(index/tickCount)));
+  const yTickCount=Math.max(1,Math.round((max-min)/(yTickStep || (safeRange/tickCount)))) ;
+  const yTicks=yTicksInfo ? yTicksInfo.ticks : yTickStep ? Array.from({ length: yTickCount + 1 }, (_,index)=>min + (index*yTickStep)) : Array.from({ length: tickCount + 1 }, (_,index)=>min + (safeRange*(index/tickCount)));
 
   const xAxisLabel=escapeSvgText(config.xAxisLabel || "");
   const yAxisLabel=escapeSvgText(config.yAxisLabel || "");
@@ -2526,7 +2585,7 @@ function renderOverlayLineChart(container,config){
     min=0;
   }
 
-  const yTicksInfo=getNiceMsTicks(min,max,5);
+  const yTicksInfo=getHumanFriendlyMsTicks(min,max,5,innerHeight);
   const yTicks=yTicksInfo.ticks;
   min=yTicksInfo.tickMin;
   max=yTicksInfo.tickMax;
@@ -2680,10 +2739,10 @@ function renderHistoryCharts(trendData,latestTrace,fallbackMode){
       yMin:0,
       yMax:100,
       xAxisLabel:"Date",
-      yAxisLabel:"Accuracy (%)",
       ariaLabel:"Accuracy trend chart",
       emptyMessage:"No session data is available yet.",
       yFormatter:value=>formatChartValue(value,"%"),
+      yTickStep:10,
       maxXLabels:getDailyTrendLabelCount(dailyAccuracyPoints.length),
       floorAtZero:true,
       showPoints:dailyAccuracyPoints.length===1,
@@ -2697,7 +2756,6 @@ function renderHistoryCharts(trendData,latestTrace,fallbackMode){
     });
 
     const responseValues=dailyResponsePoints.map(point=>point.value);
-    const responseMax=Math.max(...responseValues,0);
 
     renderLineChart(responseTimeTrendChart,{
       values:responseValues,
@@ -2705,15 +2763,14 @@ function renderHistoryCharts(trendData,latestTrace,fallbackMode){
       xLabels:dailyResponsePoints.map(point=>formatChartDateLabel(point.dayStart,includeYearInLabels)),
       xDetailLabel:"Date",
       yDetailLabel:"Average daily response time",
-      yMin:0,
-      yMax:responseMax ? responseMax * 1.1 : 100,
       xAxisLabel:"Date",
-      yAxisLabel:"Average response time (ms)",
       ariaLabel:"Response time trend chart",
       emptyMessage:"No session data is available yet.",
       yFormatter:value=>formatChartValue(value," ms"),
+      yTickMode:"niceMs",
+      desiredYTickCount:8,
       maxXLabels:getDailyTrendLabelCount(dailyResponsePoints.length),
-      floorAtZero:true,
+      floorAtZero:false,
       showPoints:dailyResponsePoints.length===1,
       pointRadius:3.8,
       pointHoverRadius:5.0,
