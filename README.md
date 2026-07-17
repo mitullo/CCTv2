@@ -4,4 +4,4 @@
   analytics.
 
   ## Live Demo
-  [Try it on GitHub Pages](https://tim22dev22.github.io/CCT/)
+  [Try it on GitHub Pages](https://mitullo.github.io/CCTv2/)
