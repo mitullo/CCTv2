@@ -21,6 +21,7 @@ body {
   color: var(--text);
 }
 
+:root[data-theme="dark"],
 body.theme-dark {
   --bg: #111827;
   --surface: #1f2937;
@@ -1392,6 +1393,7 @@ button:disabled {
   color-scheme: light;
 }
 
+:root[data-theme="dark"],
 body.theme-dark {
   --bg: #0c1017;
   --surface: #141a23;
@@ -1425,7 +1427,7 @@ body {
   display: block;
   min-height: 100vh;
   background: var(--bg);
-  font-family: "Segoe UI Variable Text", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Plus Jakarta Sans", "Segoe UI Variable Text", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -1442,10 +1444,12 @@ body::before {
   pointer-events: none;
 }
 
+body[data-theme="dark"]::before,
 body.theme-dark::before {
   background: #111827;
 }
 
+:root[data-theme="cyan"],
 body.theme-cyan {
   --bg: #dff7fa;
   --surface: #f9feff;
@@ -1466,6 +1470,7 @@ body.theme-cyan {
   color-scheme: light;
 }
 
+body[data-theme="cyan"]::before,
 body.theme-cyan::before {
   background: #d4f2f6;
 }
@@ -2367,5 +2372,319 @@ body.error-flash .session-view {
 
   .session-metrics {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Training surface and typography ---------------------------------------- */
+.field small,
+.toggle-card small,
+.panel-heading > p,
+.section-note,
+.subtitle,
+.voice-stability-status {
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.field small,
+.toggle-card small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.field strong,
+.toggle-card strong,
+.compact-field span,
+.settings-tab,
+button,
+select,
+input {
+  font-family: inherit;
+}
+
+.training-card.session-view {
+  width: 100%;
+  max-width: 1200px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-raised);
+  box-shadow: 0 4px 10px rgba(16, 24, 40, 0.09);
+  text-align: left;
+}
+
+.training-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 102px;
+  padding: 22px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.training-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.training-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.training-card-icon svg,
+.training-timer-icon svg,
+.end-session-button svg,
+.training-card .stability-session-actions svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.training-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.training-timer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 5px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--accent);
+}
+
+.training-timer-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.training-timer-copy {
+  display: grid;
+  line-height: 1.2;
+}
+
+.training-timer-copy strong {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.training-timer-copy small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.training-card-content {
+  padding: 32px;
+}
+
+.training-metrics.session-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin: 0 0 22px;
+}
+
+.training-metrics .metric {
+  min-height: 92px;
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.training-metrics .metric > span {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.training-metrics .metric > strong {
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.performance-metric #feedback {
+  justify-content: flex-start;
+  width: auto;
+  min-height: 20px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.training-card .feedback-slot {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--border-strong);
+}
+
+.training-card .feedback-slot.empty {
+  opacity: 0.78;
+  background: transparent;
+}
+
+.training-card .visual-stimulus {
+  width: 100%;
+  min-height: 94px;
+  margin: 0 0 18px;
+  border-radius: 9px;
+  font-size: clamp(44px, 7vw, 66px);
+  font-weight: 600;
+}
+
+.training-card .answer-input {
+  width: 100%;
+  max-width: none;
+  min-height: 62px;
+  margin: 0;
+  border: 2px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 23px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.training-card .answer-input:focus {
+  border-color: var(--text);
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.training-card .answer-input::placeholder {
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.training-card .stability-session-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 28px;
+}
+
+.training-card .stability-session-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  min-width: 150px;
+  min-height: 42px;
+  margin: 0;
+  padding: 9px 18px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.training-card .end-session-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.training-card #pauseSessionBtn {
+  border-color: var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.training-card #intervalStats {
+  margin-top: 18px;
+}
+
+@media (max-width: 700px) {
+  .training-card-header {
+    align-items: flex-start;
+    min-height: 0;
+    padding: 18px;
+  }
+
+  .training-card-title {
+    font-size: 17px;
+  }
+
+  .training-card-content {
+    padding: 18px;
+  }
+
+  .training-metrics.session-metrics {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .training-card .stability-session-actions {
+    flex-direction: column;
+  }
+
+  .training-card .stability-session-actions > button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .training-card-header {
+    gap: 10px;
+  }
+
+  .training-card-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .training-timer {
+    min-width: 118px;
+    padding: 7px 9px;
+  }
+
+  .training-timer-icon {
+    width: 32px;
+    height: 32px;
+    border-width: 4px;
   }
 }

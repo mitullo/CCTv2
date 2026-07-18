@@ -37,6 +37,8 @@ const EMPTY_HISTORY_STATS={
   totalDurationMs:0
 };
 const SETTINGS_KEY="cctSettings";
+const SETTINGS_SESSION_KEY="cctSettingsSessionBackup";
+const SETTINGS_WINDOW_NAME_PREFIX="CCT_SETTINGS:";
 const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference"]);
 const DEFAULT_BEEP_GAIN=0.12;
 const DEFAULT_BEEP_VOLUME_PERCENT=50;
@@ -319,14 +321,19 @@ function setHistoryVisible(isVisible){
 }
 
 function readSavedSettings(){
+  let saved="";
+  try{ saved=window.localStorage.getItem(SETTINGS_KEY)||""; }catch(e){}
+  if(!saved){
+    try{ saved=window.sessionStorage.getItem(SETTINGS_SESSION_KEY)||""; }catch(e){}
+  }
+  if(!saved && typeof window.name==="string" && window.name.startsWith(SETTINGS_WINDOW_NAME_PREFIX)){
+    saved=window.name.slice(SETTINGS_WINDOW_NAME_PREFIX.length);
+  }
   try{
-    const saved=window.localStorage.getItem(SETTINGS_KEY);
     if(!saved) return {...defaultSettings};
     const parsed=JSON.parse(saved);
     const normalized=normalizeSavedSettings(parsed);
-    if(saved!==JSON.stringify(normalized)){
-      window.localStorage.setItem(SETTINGS_KEY,JSON.stringify(normalized));
-    }
+    persistSettings(normalized);
     return normalized;
   }catch(e){
     return {...defaultSettings};
@@ -384,25 +391,31 @@ function getSettingsFromForm(){
   };
 }
 
+function persistSettings(settings){
+  const serialized=JSON.stringify(settings);
+  try{ window.localStorage.setItem(SETTINGS_KEY,serialized); }catch(e){}
+  try{ window.sessionStorage.setItem(SETTINGS_SESSION_KEY,serialized); }catch(e){}
+  try{ window.name=SETTINGS_WINDOW_NAME_PREFIX+serialized; }catch(e){}
+}
+
 function saveSettings(){
-  try{
-    window.localStorage.setItem(SETTINGS_KEY,JSON.stringify(getSettingsFromForm()));
-  }catch(e){}
+  persistSettings(getSettingsFromForm());
 }
 
 function resetSettingsToDefault(){
   const defaults={...defaultSettings};
-  try{
-    window.localStorage.setItem(SETTINGS_KEY,JSON.stringify(defaults));
-  }catch(e){}
+  persistSettings(defaults);
   applySettings(defaults);
   saveSettings();
 }
 
 function applyTheme(mode){
   themeMode=THEME_MODES.has(mode) ? mode : defaultSettings.themeMode;
+  document.documentElement.dataset.theme=themeMode;
+  document.body.dataset.theme=themeMode;
   document.body.classList.toggle("theme-dark",themeMode==="dark");
   document.body.classList.toggle("theme-cyan",themeMode==="cyan");
+  document.documentElement.style.colorScheme=themeMode==="dark" ? "dark" : "light";
 }
 
 function normalizeNumberRangeInputs(){
@@ -3385,14 +3398,24 @@ async function refreshHistoryView(){
 
 function updateSessionLimitUI(){
   if(endCondition==="correct"){
-    sessionLimitLabel.textContent="Correct Answers";
+    sessionLimitLabel.textContent="correct answers";
     timeLeft.textContent=correctAnswers + " / " + targetCorrect;
     sessionLimitSuffix.textContent="";
     return;
   }
 
-  sessionLimitLabel.textContent="Time Left";
-  sessionLimitSuffix.textContent="s";
+  sessionLimitLabel.textContent="remaining";
+  sessionLimitSuffix.textContent="";
+}
+
+function formatSessionCountdown(totalSeconds){
+  const seconds=Math.max(0,Math.ceil(Number(totalSeconds)||0));
+  const minutes=Math.floor(seconds/60);
+  return `${minutes}:${String(seconds%60).padStart(2,"0")}`;
+}
+
+function renderSessionCountdown(totalSeconds){
+  timeLeft.textContent=formatSessionCountdown(totalSeconds);
 }
 
 function formatVoiceLabel(voiceKey){
@@ -3432,14 +3455,15 @@ function mergeVoiceEntries(target,source){
 
 async function discoverVoices(){
   const discovered={};
+  mergeVoiceEntries(discovered,{
+    samantha:{ label:"Samantha", basePath:"audio/samantha" },
+    nathan:{ label:"Nathan", basePath:"audio/nathan" },
+    enhancednathan:{ label:"Enhanced Nathan", basePath:"audio/enhancednathan" },
+    siri4:{ label:"Siri 4", basePath:"audio/siri4" },
+    russianmale:{ label:"Русский — мужской", basePath:"audio/russian-male" },
+    russianfemale:{ label:"Русский — женский", basePath:"audio/russian-female" }
+  });
   mergeVoiceEntries(discovered,window.CCT_VOICE_LIBRARY);
-
-  if(!Object.keys(discovered).length){
-    discovered.samantha={ label:"Samantha", basePath:"audio/samantha" };
-    discovered.nathan={ label:"Nathan", basePath:"audio/nathan" };
-    discovered.enhancednathan={ label:"Enhanced Nathan", basePath:"audio/enhancednathan" };
-    discovered.siri4={ label:"Siri 4", basePath:"audio/siri4" };
-  }
 
   voiceLibrary=discovered;
   return discovered;
@@ -3966,7 +3990,7 @@ function getAnswerMatchType(questionState,submittedValue){
 }
 
 function renderEquationStreamEntry(questionState,submittedValue,isCorrect){
-  if(!equationStreamEnabled || !equationStream || questionState.referenceValue===null) return;
+  if(!equationStreamEnabled || !equationStream || questionState.referenceValue==null) return;
   const row=document.createElement("div");
   row.className=`equation-entry ${isCorrect ? "is-correct" : "is-wrong"}`;
   const submitted=String(submittedValue ?? "").trim();
@@ -4143,8 +4167,8 @@ function runStimulus(){
 
 function updateTimer(){
   if(!gameRunning||endCondition!=="timer")return;
-  const r=Math.max(0,Math.floor((endTime-Date.now())/1000));
-  document.getElementById("timeLeft").textContent=r;
+  const r=Math.max(0,Math.ceil((endTime-Date.now())/1000));
+  renderSessionCountdown(r);
   if(r<=0) stopGame("completed"); else requestAnimationFrame(updateTimer);
 }
 
@@ -4277,14 +4301,13 @@ async function startGame(){
   answer.value="";
   visualStimulus.textContent="";
   equationStream.innerHTML="";
-  sessionHeading.textContent=getTaskInstruction();
   buildNumberPad();
 
   currentInterval.textContent=startingInterval;
   updateSessionLimitUI();
   if(endCondition==="timer"){
     endTime=sessionStartedAt+duration;
-    timeLeft.textContent=Math.ceil(duration/1000);
+    renderSessionCountdown(duration/1000);
   }else{
     endTime=0;
   }
@@ -4338,7 +4361,7 @@ function stopGame(reason="manual"){
 
   updateIntervalStats();
 
-  if(endCondition==="timer") timeLeft.textContent="0";
+  if(endCondition==="timer") renderSessionCountdown(0);
   renderResults();
   const sessionRecord=buildSessionRecord();
   const latestTraceRecord=buildLatestTraceRecord();
@@ -4368,7 +4391,6 @@ const answer=document.getElementById("answer");
 const appHeader=document.getElementById("appHeader");
 const currentIntervalMetric=document.getElementById("currentIntervalMetric");
 const sessionGoalMetric=document.getElementById("sessionGoalMetric");
-const sessionHeading=document.querySelector(".session-heading h2");
 const visualStimulus=document.getElementById("visualStimulus");
 const feedbackElement=document.getElementById("feedback");
 const numberPad=document.getElementById("numberPad");
@@ -4717,6 +4739,11 @@ settingsControls.forEach(control=>{
   control.addEventListener("input",handleSettingsChange);
   control.addEventListener("change",handleSettingsChange);
 });
+themeModeSelect.addEventListener("change",()=>{
+  applyTheme(themeModeSelect.value);
+  saveSettings();
+});
+window.addEventListener("pagehide",saveSettings);
 voiceSelect.addEventListener("focus",()=>{
   void refreshVoiceLibrary();
 });

@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Adaptive PASAT · Cognitive Control Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -25,30 +28,47 @@
   </div>
 </header>
 
-<div id="sessionView" class="session-view hidden">
-  <div class="session-heading">
-    <span class="eyebrow">Training in progress</span>
-    <h2>Combine each new number with the N-back number.</h2>
-  </div>
-  <div class="session-metrics">
-    <div id="currentIntervalMetric" class="metric">
-      <span>Current Interval</span>
-      <strong><span id="currentInterval">1000</span> ms</strong>
+<div id="sessionView" class="session-view training-card hidden">
+  <header class="training-card-header">
+    <h2 class="training-card-title">
+      <span class="training-card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </span>
+      <span>Active Training Session</span>
+    </h2>
+    <div id="sessionGoalMetric" class="training-timer">
+      <span class="training-timer-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </span>
+      <span class="training-timer-copy">
+        <strong><span id="timeLeft">0:00</span><span id="sessionLimitSuffix"></span></strong>
+        <small id="sessionLimitLabel">remaining</small>
+      </span>
     </div>
-    <div id="sessionGoalMetric" class="metric">
-      <span id="sessionLimitLabel">Time Left</span>
-      <strong><span id="timeLeft">0</span><span id="sessionLimitSuffix">s</span></strong>
+  </header>
+
+  <div class="training-card-content">
+    <div class="session-metrics training-metrics">
+      <div id="currentIntervalMetric" class="metric">
+        <span>Current Interval</span>
+        <strong><span id="currentInterval">1000</span> ms</strong>
+      </div>
+      <div class="metric performance-metric">
+        <span>Consecutive Performance</span>
+        <div id="feedback" aria-label="Recent performance"></div>
+      </div>
     </div>
+
+    <div id="visualStimulus" class="visual-stimulus hidden" aria-live="polite" aria-atomic="true"></div>
+    <input class="answer-input" type="number" id="answer" placeholder="Type your answer here" disabled>
+    <div id="numberPad" class="number-pad hidden" aria-label="On-screen number pad"></div>
+    <div id="equationStream" class="equation-stream hidden" aria-label="Recent equations"></div>
+    <button id="endSessionBtn" class="primary-button end-session-button" type="button">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      <span>End Session</span>
+    </button>
+    <div id="intervalStats"></div>
   </div>
-
-  <div id="visualStimulus" class="visual-stimulus hidden" aria-live="polite" aria-atomic="true"></div>
-  <div id="feedback"></div>
-  <input class="answer-input" type="number" id="answer" placeholder="Enter answer" disabled>
-  <div id="numberPad" class="number-pad hidden" aria-label="On-screen number pad"></div>
-  <div id="equationStream" class="equation-stream hidden" aria-label="Recent equations"></div>
-  <button id="endSessionBtn" class="secondary-button danger-button" type="button">End Session</button>
-
-  <div id="intervalStats"></div>
 </div>
 
 <div id="resultsView" class="results-view hidden">

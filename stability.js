@@ -72,8 +72,16 @@
   pauseButton.id = "pauseSessionBtn";
   pauseButton.className = "secondary-button";
   pauseButton.type = "button";
-  pauseButton.textContent = "Pause";
   pauseButton.disabled = true;
+
+  function setPauseButtonLabel(label) {
+    const isResume = label === "Resume";
+    pauseButton.innerHTML = isResume
+      ? '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span>Resume</span>'
+      : '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="5" width="3" height="14" rx="1"/><rect x="14" y="5" width="3" height="14" rx="1"/></svg><span>Pause</span>';
+  }
+
+  setPauseButtonLabel("Pause");
 
   endSessionBtn.parentNode.insertBefore(sessionActions, endSessionBtn);
   sessionActions.appendChild(pauseButton);
@@ -344,6 +352,9 @@
         answerValue: answer.value,
         activeQuestionState: activeQuestionState ? {
           expectedAnswer: activeQuestionState.expectedAnswer,
+          referenceValue: activeQuestionState.referenceValue,
+          currentValue: activeQuestionState.currentValue,
+          operation: activeQuestionState.operation,
           responseInterval: activeQuestionState.responseInterval,
           traceIndex: activeQuestionState.traceIndex,
           resolved: activeQuestionState.resolved,
@@ -435,6 +446,9 @@
         startedAt: now - Math.max(0, Number(savedQuestion.elapsedMs) || 0),
         responseInterval: Math.max(100, Number(savedQuestion.responseInterval) || interval),
         expectedAnswer: savedQuestion.expectedAnswer,
+        referenceValue: savedQuestion.referenceValue ?? null,
+        currentValue: savedQuestion.currentValue ?? null,
+        operation: ARITHMETIC_MODES.has(savedQuestion.operation) ? savedQuestion.operation : arithmeticMode,
         traceIndex: Math.max(0, Number(savedQuestion.traceIndex) || 0),
         resolved: false
       };
@@ -461,12 +475,12 @@
     currentInterval.textContent = String(interval);
     updateSessionLimitUI();
     if (endCondition === "timer") {
-      timeLeft.textContent = String(Math.ceil(pausedTimerRemainingMs / 1000));
+      renderSessionCountdown(pausedTimerRemainingMs / 1000);
     }
     updateFeedbackUI();
     updateIntervalStats();
     pauseButton.disabled = false;
-    pauseButton.textContent = "Resume";
+    setPauseButtonLabel("Resume");
   }
 
   function beginRunningSession({ replayLastStimulus = false } = {}) {
@@ -486,7 +500,7 @@
     gameRunning = true;
     answer.disabled = false;
     pauseButton.disabled = false;
-    pauseButton.textContent = "Pause";
+    setPauseButtonLabel("Pause");
     currentIntervalStart = showIntervalTiming ? nowClock : 0;
     lastStimulusAt = nowClock;
 
@@ -526,7 +540,7 @@
     clearTimeout(timeoutId);
     stopStimulusAudioPlayback();
     answer.disabled = true;
-    pauseButton.textContent = "Resume";
+    setPauseButtonLabel("Resume");
     void releaseWakeLock();
     saveCheckpoint();
   }
@@ -549,7 +563,7 @@
       ? Math.max(0, endTime - Date.now())
       : 0;
     pauseButton.disabled = false;
-    pauseButton.textContent = "Pause";
+    setPauseButtonLabel("Pause");
     originalStartStimulusScheduler();
     void requestWakeLock();
     queueCheckpointSave();
@@ -593,7 +607,7 @@
     isPaused = false;
     pauseStartedWallTime = 0;
     pauseButton.disabled = true;
-    pauseButton.textContent = "Pause";
+    setPauseButtonLabel("Pause");
     clearCheckpoint();
     void releaseWakeLock();
 
