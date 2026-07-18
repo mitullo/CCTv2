@@ -3,28 +3,49 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CCT Game</title>
+<title>Adaptive PASAT · Cognitive Control Training</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="container">
-<h1>Cognitive Control Training</h1>
-<p class="subtitle">Auditory paced addition training</p>
+<header id="appHeader" class="app-header">
+  <div class="brand-lockup">
+    <span class="brand-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M8.5 4.5a3.5 3.5 0 0 0-3.3 4.7A3.6 3.6 0 0 0 6 16.1V18a2 2 0 0 0 2 2h2V4.5H8.5Z"/>
+        <path d="M15.5 4.5a3.5 3.5 0 0 1 3.3 4.7 3.6 3.6 0 0 1-.8 6.9V18a2 2 0 0 1-2 2h-2V4.5h1.5Z"/>
+        <path d="M7 10h3M14 10h3M7.5 14H10M14 14h2.5"/>
+      </svg>
+    </span>
+    <div>
+      <p class="eyebrow">Cognitive Control Training</p>
+      <h1>Adaptive PASAT</h1>
+      <p class="subtitle">Paced auditory arithmetic for sustained working memory.</p>
+    </div>
+  </div>
+  <span class="app-badge">Local · private · adaptive</span>
+</header>
 
 <div id="sessionView" class="session-view hidden">
+  <div class="session-heading">
+    <span class="eyebrow">Training in progress</span>
+    <h2>Combine each new number with the N-back number.</h2>
+  </div>
   <div class="session-metrics">
     <div class="metric">
       <span>Current Interval</span>
       <strong><span id="currentInterval">1000</span> ms</strong>
     </div>
-    <div class="metric">
+    <div id="sessionGoalMetric" class="metric">
       <span id="sessionLimitLabel">Time Left</span>
       <strong><span id="timeLeft">0</span><span id="sessionLimitSuffix">s</span></strong>
     </div>
   </div>
 
+  <div id="visualStimulus" class="visual-stimulus hidden" aria-live="polite" aria-atomic="true"></div>
   <div id="feedback"></div>
   <input class="answer-input" type="number" id="answer" placeholder="Enter answer" disabled>
+  <div id="numberPad" class="number-pad hidden" aria-label="On-screen number pad"></div>
   <button id="endSessionBtn" class="secondary-button danger-button" type="button">End Session</button>
 
   <div id="intervalStats"></div>
@@ -223,131 +244,122 @@
 </div>
 
 <div id="settingsView">
-  <div class="settings">
-    <label class="toggle-field advanced-master-toggle">
-      <input type="checkbox" id="showAdvancedSettingsToggle">
-      Show Advanced Settings
-    </label>
+  <section class="task-intro">
+    <div>
+      <p class="eyebrow">How it works</p>
+      <h2>Hear a number. Combine it with the number held N steps back.</h2>
+      <p>The pace adapts after streaks of correct or incorrect answers, so difficulty changes without interrupting the task.</p>
+    </div>
+    <div class="example-card" aria-label="PASAT example">
+      <span class="example-label">Example · 1-back addition</span>
+      <div class="example-equation"><strong>4</strong><span>then</span><strong>7</strong><span>answer</span><strong>11</strong></div>
+    </div>
+  </section>
 
-    <section class="settings-section">
-      <div class="section-header">General</div>
-      <label class="toggle-field"><input type="checkbox" id="beepToggle" checked> Beep on error</label>
-      <label class="toggle-field"><input type="checkbox" id="themeToggle"> Dark mode</label>
-      <div class="subsection-title">Audio</div>
-      <label class="field voice-field">
-        <span>Voice</span>
-        <div class="voice-control-group">
-          <select id="voiceSelect">
-            <option value="nathan">Nathan</option>
-          </select>
-          <button id="voiceTestBtn" class="secondary-button voice-test-button" type="button">Test Voice</button>
-        </div>
-      </label>
-      <label class="field">
-        <span>Playback speed <strong id="playbackSpeedValue">1x</strong></span>
-        <input type="range" id="playbackSpeedSelect" min="1" max="1.5" step="0.1" value="1">
-      </label>
-    </section>
+  <div class="settings-shell">
+    <nav class="settings-tabs" role="tablist" aria-label="Training settings">
+      <button class="settings-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="settingsSessionPanel" data-settings-tab="session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span>Session</span></button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsDifficultyPanel" data-settings-tab="difficulty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m8 10V5m8 14V2"/></svg><span>Difficulty</span></button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsInputPanel" data-settings-tab="input"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg><span>Audio &amp; input</span></button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsAppearancePanel" data-settings-tab="appearance"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg><span>Appearance</span></button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsAdvancedPanel" data-settings-tab="advanced"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10m4 0h2M4 12h2m4 0h10M4 18h7m4 0h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg><span>Advanced</span></button>
+    </nav>
 
-    <section class="settings-section">
-      <div class="section-header">Session Behavior</div>
-      <label class="field">
-        <span>Session end mode</span>
-        <select id="endCondition">
-          <option value="timer">Timer-based</option>
-          <option value="correct">Correct-answer-based</option>
-        </select>
-      </label>
-      <label class="field child-field" id="durationField">
-        <span>Timer duration (minutes)</span>
-        <input type="number" id="duration" value="1" min="1">
-      </label>
-      <label class="field child-field locked" id="targetCorrectField">
-        <span>Target correct answers</span>
-        <input type="number" id="targetCorrect" value="500" min="1" disabled>
-      </label>
-      <label class="field mode-field advanced-only hidden" id="modeField">
-        <span>Arithmetic mode <strong class="advanced-badge">Advanced</strong></span>
-        <select id="modeSelect">
-          <option value="addition">Addition (A + B)</option>
-          <option value="multiplication">Multiplication (A * B)</option>
-          <option value="subtraction">Subtraction (signed) (A - B)</option>
-          <option value="difference">Difference (absolute) (abs(A - B))</option>
-        </select>
-      </label>
-    </section>
-
-    <section class="settings-section">
-      <div class="section-header">Interval Settings</div>
-      <label class="field">
-        <span>Starting Interval (ms)</span>
-        <input type="number" id="startingInterval" value="1500" min="200" max="1500" step="100">
-      </label>
-      <div id="advancedSettingsPanel" class="advanced-settings hidden">
-        <label class="field">
-          <span>Minimum Interval (ms)</span>
-          <input type="number" id="minimumInterval" value="700" min="100" max="1500" step="100">
-        </label>
-        <label class="field">
-          <span>Interval Increment <strong id="intervalIncrementValue">100</strong></span>
-          <input type="range" id="intervalIncrement" min="10" max="100" step="10" value="100">
-        </label>
+    <div class="settings">
+      <div id="settingsSessionPanel" class="settings-panel is-active" role="tabpanel" data-settings-panel="session">
+        <div class="panel-heading"><div><p class="eyebrow">Session</p><h2>Choose the finish line</h2></div><p>Train by elapsed time or by a fixed number of correct answers.</p></div>
+        <section class="settings-section">
+          <div class="section-header">Session goal</div>
+          <label class="field"><span><strong>End condition</strong><small>What completes the session.</small></span><select id="endCondition"><option value="timer">Timer</option><option value="correct">Correct answers</option></select></label>
+          <label class="field child-field" id="durationField"><span><strong>Duration</strong><small>Minutes of active training.</small></span><input type="number" id="duration" value="15" min="1" max="9999"></label>
+          <label class="field child-field locked" id="targetCorrectField"><span><strong>Correct-answer target</strong><small>Ends immediately when reached.</small></span><input type="number" id="targetCorrect" value="500" min="1" max="9999" disabled></label>
+        </section>
+        <section class="settings-section">
+          <div class="section-header">Starting pace</div>
+          <label class="field"><span><strong>Starting interval</strong><small>Time between presented numbers.</small></span><div class="input-with-unit"><input type="number" id="startingInterval" value="1500" min="200" max="1500" step="100"><span>ms</span></div></label>
+        </section>
       </div>
-    </section>
 
-    <div id="advancedSections" class="advanced-sections hidden">
-      <section class="settings-section">
-        <div class="section-header">Beep Audio</div>
-        <label class="field">
-          <span>Beep volume <strong id="beepVolumeValue">50%</strong></span>
-          <input type="range" id="beepVolume" min="0" max="100" step="1" value="50">
-        </label>
-        <button id="beepTestBtn" class="secondary-button" type="button">Test Beep</button>
-      </section>
+      <div id="settingsDifficultyPanel" class="settings-panel" role="tabpanel" data-settings-panel="difficulty" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">Difficulty</p><h2>Control what must be held and computed</h2></div><p>These controls change the task itself, not merely its speed.</p></div>
+        <section class="settings-section">
+          <div class="section-header">Working-memory load</div>
+          <label class="field mode-field" id="modeField"><span><strong>Arithmetic</strong><small>Operation applied to the current and N-back numbers.</small></span><select id="modeSelect"><option value="addition">Addition (A + B)</option><option value="multiplication">Multiplication (A × B)</option><option value="subtraction">Subtraction (A − B)</option><option value="difference">Absolute difference |A − B|</option></select></label>
+          <label class="field"><span><strong>N-back depth</strong><small>1-back is standard PASAT. Higher values increase memory load.</small></span><select id="nBackDepth"><option value="1">1-back</option><option value="2">2-back</option><option value="3">3-back</option><option value="4">4-back</option><option value="5">5-back</option></select></label>
+        </section>
+        <section class="settings-section">
+          <div class="section-header">Number pool</div>
+          <div class="field-pair">
+            <label class="compact-field"><span>Lowest number</span><input type="number" id="numberRangeMin" min="1" max="9" value="1"></label>
+            <label class="compact-field"><span>Highest number</span><input type="number" id="numberRangeMax" min="1" max="9" value="9"></label>
+          </div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="singleDigitToggle"><span></span></span><span><strong>Single-digit answers</strong><small>Only generate pairs whose correct result is between 0 and 9.</small></span></label>
+        </section>
+      </div>
 
-      <section class="settings-section">
-        <div class="section-header">
-          <span>Threshold Settings</span>
-          <span class="threshold-help">
-            <button
-              id="thresholdInfoBtn"
-              class="icon-button info-button"
-              type="button"
-              aria-expanded="false"
-              aria-label="Thresholds help"
-            >i</button>
-            <span class="tooltip-box" role="tooltip">Thresholds control how strict scoring is. Presets are shortcuts for common settings.</span>
-          </span>
+      <div id="settingsInputPanel" class="settings-panel" role="tabpanel" data-settings-panel="input" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">Audio &amp; input</p><h2>Choose how stimuli arrive and answers are entered</h2></div><p>Audio remains the default; visual presentation is useful for accessibility and testing.</p></div>
+        <section class="settings-section">
+          <div class="section-header">Presentation</div>
+          <label class="field voice-field"><span><strong>Voice</strong><small>Pre-recorded number clips.</small></span><div class="voice-control-group"><select id="voiceSelect"><option value="nathan">Nathan</option></select><button id="voiceTestBtn" class="secondary-button voice-test-button" type="button">Test voice</button></div></label>
+          <label class="field"><span><strong>Playback speed</strong><small id="playbackSpeedValue">1×</small></span><input type="range" id="playbackSpeedSelect" min="1" max="1.5" step="0.1" value="1"></label>
+          <label class="field"><span><strong>Stimulus presentation</strong><small>Audio, visual, or both together.</small></span><select id="presentationMode"><option value="audio">Audio only</option><option value="both">Audio + visual</option><option value="visual">Visual only</option></select></label>
+        </section>
+        <section class="settings-section">
+          <div class="section-header">Answer input</div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="numberPadToggle"><span></span></span><span><strong>On-screen number pad</strong><small>Adds large tap targets without disabling keyboard input.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="hideAnswerToggle"><span></span></span><span><strong>Hide typed answer</strong><small>Keeps the input cursor visible while masking entered digits.</small></span></label>
+        </section>
+      </div>
+
+      <div id="settingsAppearancePanel" class="settings-panel" role="tabpanel" data-settings-panel="appearance" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">Appearance</p><h2>Keep the training surface quiet</h2></div><p>Visual feedback can be reduced without changing the task.</p></div>
+        <section class="settings-section">
+          <div class="section-header">Interface</div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="themeToggle"><span></span></span><span><strong>Dark mode</strong><small>Use a low-luminance interface.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="showSessionTimerToggle" checked><span></span></span><span><strong>Show session goal</strong><small>Display remaining time or correct-answer progress during training.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="errorFlashToggle"><span></span></span><span><strong>Error flash</strong><small>Briefly tint the task surface after an incorrect answer.</small></span></label>
+        </section>
+      </div>
+
+      <div id="settingsAdvancedPanel" class="settings-panel" role="tabpanel" data-settings-panel="advanced" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">Advanced</p><h2>Tune the staircase and diagnostics</h2></div><p>Defaults are balanced. Change these only when you know the behavior you want.</p></div>
+        <label class="toggle-card advanced-master-toggle"><span class="switch"><input type="checkbox" id="showAdvancedSettingsToggle"><span></span></span><span><strong>Unlock advanced controls</strong><small>Shows thresholds, lower bounds, and timing diagnostics.</small></span></label>
+        <div id="advancedSettingsPanel" class="advanced-settings hidden">
+          <section class="settings-section">
+            <div class="section-header">Adaptive pace</div>
+            <label class="field"><span><strong>Minimum interval</strong><small>Hard lower bound for the staircase.</small></span><div class="input-with-unit"><input type="number" id="minimumInterval" value="700" min="100" max="1500" step="100"><span>ms</span></div></label>
+            <label class="field"><span><strong>Interval step</strong><small id="intervalIncrementValue">100 ms</small></span><input type="range" id="intervalIncrement" min="10" max="100" step="10" value="100"></label>
+          </section>
         </div>
-        <div class="section-note">Balanced and Strict presets set both thresholds together.</div>
-        <label class="field">
-          <span>Correct threshold <strong id="correctThresholdValue">4</strong></span>
-          <input type="range" id="correctThreshold" min="1" max="10" step="1" value="4">
-        </label>
-        <label class="field">
-          <span>Incorrect threshold <strong id="incorrectThresholdValue">4</strong></span>
-          <input type="range" id="incorrectThreshold" min="1" max="10" step="1" value="4">
-        </label>
-        <div class="preset-row">
-          <button id="normalThresholdPresetBtn" class="secondary-button" type="button">Balanced</button>
-          <button id="highAccuracyPresetBtn" class="secondary-button" type="button">Strict</button>
+        <div id="advancedSections" class="advanced-sections hidden">
+          <section class="settings-section">
+            <div class="section-header"><span>Staircase thresholds</span><span class="threshold-help"><button id="thresholdInfoBtn" class="icon-button info-button" type="button" aria-expanded="false" aria-label="Threshold help">i</button><span class="tooltip-box" role="tooltip">The interval gets shorter after the correct streak and longer after the incorrect streak.</span></span></div>
+            <label class="field"><span><strong>Correct streak</strong><small id="correctThresholdValue">4 answers</small></span><input type="range" id="correctThreshold" min="1" max="10" step="1" value="4"></label>
+            <label class="field"><span><strong>Incorrect streak</strong><small id="incorrectThresholdValue">4 answers</small></span><input type="range" id="incorrectThreshold" min="1" max="10" step="1" value="4"></label>
+            <div class="preset-row"><button id="normalThresholdPresetBtn" class="secondary-button" type="button">Balanced 4 / 4</button><button id="highAccuracyPresetBtn" class="secondary-button" type="button">Strict 5 / 3</button></div>
+          </section>
+          <section class="settings-section">
+            <div class="section-header">Error sound</div>
+            <label class="toggle-card"><span class="switch"><input type="checkbox" id="beepToggle" checked><span></span></span><span><strong>Beep on error</strong><small>Audible feedback for wrong answers and timeouts.</small></span></label>
+            <label class="field"><span><strong>Sound</strong><small>Each option has a distinct pitch and envelope.</small></span><select id="beepType"><option value="clean">Clean</option><option value="sharp">Sharp</option><option value="low">Low</option></select></label>
+            <label class="field"><span><strong>Volume</strong><small id="beepVolumeValue">50%</small></span><input type="range" id="beepVolume" min="0" max="100" step="1" value="50"></label>
+            <button id="beepTestBtn" class="secondary-button" type="button">Test sound</button>
+          </section>
+          <section class="settings-section">
+            <div class="section-header">Diagnostics</div>
+            <label class="toggle-card"><span class="switch"><input type="checkbox" id="showIntervalTimingToggle"><span></span></span><span><strong>Show interval timing data</strong><small>Displays time spent at every staircase interval.</small></span></label>
+          </section>
         </div>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-header">Timing Display</div>
-        <label class="toggle-field"><input type="checkbox" id="showIntervalTimingToggle"> Show interval timing data</label>
-      </section>
+      </div>
     </div>
   </div>
 
-  <button id="startBtn" class="primary-button">Start</button>
-  <div class="settings-reset-zone">
-    <button id="resetSettingsBtn" class="secondary-button danger-button settings-reset-button" type="button">Reset Settings to Default</button>
+  <div class="start-dock">
+    <button id="startBtn" class="primary-button" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span>Start training</span></button>
+    <button id="historyBtn" class="secondary-button" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>Training history</span></button>
   </div>
-  <div class="settings-history-zone">
-    <button id="historyBtn" class="secondary-button" type="button">Training History</button>
-  </div>
+  <div class="settings-reset-zone"><button id="resetSettingsBtn" class="secondary-button danger-button settings-reset-button" type="button">Reset settings to default</button></div>
 </div>
 </div>
 <div id="footerView" class="footer">

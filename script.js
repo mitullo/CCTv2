@@ -42,6 +42,8 @@ const DEFAULT_BEEP_GAIN=0.12;
 const DEFAULT_BEEP_VOLUME_PERCENT=50;
 const MAX_BEEP_VOLUME_PERCENT=100;
 const MAX_BEEP_GAIN=0.52;
+const PRESENTATION_MODES=new Set(["audio","both","visual"]);
+const BEEP_TYPES=new Set(["clean","sharp","low"]);
 const defaultSettings={
   startingInterval:"1500",
   minimumInterval:"700",
@@ -55,10 +57,20 @@ const defaultSettings={
   voice:"nathan",
   playbackSpeed:"1",
   beepVolume:String(DEFAULT_BEEP_VOLUME_PERCENT),
+  beepType:"clean",
   beepEnabled:true,
   darkMode:false,
   showAdvancedSettings:false,
-  showIntervalTiming:false
+  showIntervalTiming:false,
+  nBackDepth:"1",
+  numberRangeMin:"1",
+  numberRangeMax:"9",
+  singleDigitOnly:false,
+  presentationMode:"audio",
+  numberPadEnabled:false,
+  hideAnswerEnabled:false,
+  showSessionGoal:true,
+  errorFlashEnabled:false
 };
 
 let intervalCounts={}, intervalTime={}, currentIntervalStart=0;
@@ -67,6 +79,16 @@ let showIntervalTiming=false;
 let selectedVoice="";
 let playbackSpeed=1;
 let beepVolume=DEFAULT_BEEP_VOLUME_PERCENT;
+let beepType="clean";
+let nBackDepth=1;
+let numberRangeMin=1;
+let numberRangeMax=9;
+let singleDigitOnly=false;
+let presentationMode="audio";
+let numberPadEnabled=false;
+let hideAnswerEnabled=false;
+let showSessionGoal=true;
+let errorFlashEnabled=false;
 let voiceAudioCache={};
 let activeStimulusAudios=new Set();
 let voiceLibrary={};
@@ -134,6 +156,11 @@ function normalizeSavedSettings(parsed){
   const mode=ARITHMETIC_MODES.has(parsed.mode) ? parsed.mode : defaultSettings.mode;
   const voice=resolveVoiceKey(parsed.voice,defaultSettings.voice);
   const beepVolume=String(normalizeBeepVolumeSetting(parsed.beepVolume,defaultSettings.beepVolume));
+  const normalizedRangeMin=clampInteger(parsed.numberRangeMin,parseInt(defaultSettings.numberRangeMin,10),1,9);
+  const normalizedRangeMax=Math.max(
+    normalizedRangeMin,
+    clampInteger(parsed.numberRangeMax,parseInt(defaultSettings.numberRangeMax,10),1,9)
+  );
 
   return {
     ...defaultSettings,
@@ -149,6 +176,16 @@ function normalizeSavedSettings(parsed){
     voice,
     playbackSpeed:String(Math.max(1,Math.min(1.5,parseFloat(parsed.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed)))),
     beepVolume,
+    beepType:BEEP_TYPES.has(parsed.beepType) ? parsed.beepType : defaultSettings.beepType,
+    nBackDepth:String(clampInteger(parsed.nBackDepth,parseInt(defaultSettings.nBackDepth,10),1,5)),
+    numberRangeMin:String(normalizedRangeMin),
+    numberRangeMax:String(normalizedRangeMax),
+    singleDigitOnly:!!parsed.singleDigitOnly,
+    presentationMode:PRESENTATION_MODES.has(parsed.presentationMode) ? parsed.presentationMode : defaultSettings.presentationMode,
+    numberPadEnabled:!!parsed.numberPadEnabled,
+    hideAnswerEnabled:!!parsed.hideAnswerEnabled,
+    showSessionGoal:parsed.showSessionGoal ?? defaultSettings.showSessionGoal,
+    errorFlashEnabled:!!parsed.errorFlashEnabled,
     showAdvancedSettings:!!parsed.showAdvancedSettings,
     showIntervalTiming:!!parsed.showIntervalTiming,
     beepEnabled:parsed.beepEnabled ?? defaultSettings.beepEnabled,
@@ -166,10 +203,14 @@ function updateAppViews(){
   resultsView.classList.toggle("hidden",!resultsVisible);
   historyView.classList.toggle("hidden",!historyPageVisible);
   settingsView.classList.toggle("hidden",!settingsVisible);
+  appHeader.classList.toggle("hidden",!settingsVisible);
   footerView.classList.toggle("hidden",!settingsVisible);
   startBtn.disabled=sessionState!=="idle";
   answer.disabled=sessionState!=="active";
   endSessionBtn.disabled=!sessionVisible;
+  if(numberPad){
+    numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+  }
 }
 
 function hideHistoryFilters(){
@@ -228,10 +269,20 @@ function getSettingsFromForm(){
     voice:resolveVoiceKey(voiceSelect.value || selectedVoice),
     playbackSpeed:playbackSpeedSelect.value,
     beepVolume:beepVolumeSelect.value,
+    beepType:beepTypeSelect.value,
     beepEnabled:beepToggle.checked,
     darkMode:themeToggle.checked,
     showAdvancedSettings:showAdvancedSettingsToggle.checked,
-    showIntervalTiming:showIntervalTimingToggle.checked
+    showIntervalTiming:showIntervalTimingToggle.checked,
+    nBackDepth:nBackDepthSelect.value,
+    numberRangeMin:numberRangeMinInput.value,
+    numberRangeMax:numberRangeMaxInput.value,
+    singleDigitOnly:singleDigitToggle.checked,
+    presentationMode:presentationModeSelect.value,
+    numberPadEnabled:numberPadToggle.checked,
+    hideAnswerEnabled:hideAnswerToggle.checked,
+    showSessionGoal:showSessionTimerToggle.checked,
+    errorFlashEnabled:errorFlashToggle.checked
   };
 }
 
@@ -254,9 +305,35 @@ function applyTheme(isDark){
   document.body.classList.toggle("theme-dark",isDark);
 }
 
+function normalizeNumberRangeInputs(){
+  const minValue=clampInteger(numberRangeMinInput.value,1,1,9);
+  const maxValue=Math.max(minValue,clampInteger(numberRangeMaxInput.value,9,1,9));
+  numberRangeMinInput.value=String(minValue);
+  numberRangeMaxInput.value=String(maxValue);
+  numberRangeMin=minValue;
+  numberRangeMax=maxValue;
+}
+
+function applyTrainingPresentationSettings(){
+  presentationMode=PRESENTATION_MODES.has(presentationModeSelect.value) ? presentationModeSelect.value : defaultSettings.presentationMode;
+  numberPadEnabled=numberPadToggle.checked;
+  hideAnswerEnabled=hideAnswerToggle.checked;
+  showSessionGoal=showSessionTimerToggle.checked;
+  errorFlashEnabled=errorFlashToggle.checked;
+  nBackDepth=clampInteger(nBackDepthSelect.value,1,1,5);
+  singleDigitOnly=singleDigitToggle.checked;
+  beepType=BEEP_TYPES.has(beepTypeSelect.value) ? beepTypeSelect.value : defaultSettings.beepType;
+  normalizeNumberRangeInputs();
+
+  answer.classList.toggle("is-masked",hideAnswerEnabled);
+  sessionGoalMetric.classList.toggle("hidden",!showSessionGoal);
+  visualStimulus.classList.toggle("hidden",presentationMode==="audio");
+  numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+}
+
 function formatPlaybackSpeed(value){
   const normalized=Math.max(1,Math.min(1.5,parseFloat(value)||1));
-  return normalized.toFixed(1).replace(/\.0$/,"") + "x";
+  return normalized.toFixed(1).replace(/\.0$/,"") + "×";
 }
 
 function formatBeepVolume(value){
@@ -264,8 +341,10 @@ function formatBeepVolume(value){
 }
 
 function updateThresholdLabels(){
-  correctThresholdValue.textContent=correctThresholdInput.value;
-  incorrectThresholdValue.textContent=incorrectThresholdInput.value;
+  const correctCount=correctThresholdInput.value;
+  const incorrectCount=incorrectThresholdInput.value;
+  correctThresholdValue.textContent=`${correctCount} answer${correctCount==="1"?"":"s"}`;
+  incorrectThresholdValue.textContent=`${incorrectCount} answer${incorrectCount==="1"?"":"s"}`;
 }
 
 function getIndicatorSlotCount(){
@@ -281,7 +360,6 @@ function applyArithmeticMode(mode){
 function applyAdvancedSettingsVisibility(isVisible){
   advancedSettingsPanel.classList.toggle("hidden",!isVisible);
   advancedSections.classList.toggle("hidden",!isVisible);
-  modeField.classList.toggle("hidden",!isVisible);
 }
 
 function applySettings(settings){
@@ -301,10 +379,20 @@ function applySettings(settings){
   beepVolumeSelect.value=normalizeBeepVolumeSetting(settings.beepVolume);
   beepVolumeValue.textContent=formatBeepVolume(beepVolumeSelect.value);
   beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
+  beepTypeSelect.value=BEEP_TYPES.has(settings.beepType) ? settings.beepType : defaultSettings.beepType;
   beepToggle.checked=settings.beepEnabled;
   themeToggle.checked=settings.darkMode;
   showIntervalTimingToggle.checked=settings.showIntervalTiming;
-  intervalIncrementValue.textContent=settings.intervalIncrement;
+  nBackDepthSelect.value=settings.nBackDepth;
+  numberRangeMinInput.value=settings.numberRangeMin;
+  numberRangeMaxInput.value=settings.numberRangeMax;
+  singleDigitToggle.checked=settings.singleDigitOnly;
+  presentationModeSelect.value=settings.presentationMode;
+  numberPadToggle.checked=settings.numberPadEnabled;
+  hideAnswerToggle.checked=settings.hideAnswerEnabled;
+  showSessionTimerToggle.checked=settings.showSessionGoal;
+  errorFlashToggle.checked=settings.errorFlashEnabled;
+  intervalIncrementValue.textContent=String(settings.intervalIncrement)+" ms";
   updateThresholdLabels();
   currentInterval.textContent=settings.startingInterval;
   applyTheme(settings.darkMode);
@@ -313,6 +401,7 @@ function applySettings(settings){
   showAdvancedSettingsToggle.checked=settings.showAdvancedSettings;
   applyAdvancedSettingsVisibility(settings.showAdvancedSettings);
   applyIntervalTimingVisibility(settings.showIntervalTiming);
+  applyTrainingPresentationSettings();
   updateEndConditionControls();
 }
 
@@ -322,18 +411,19 @@ function handleSettingsChange(){
   selectedVoice=resolveVoiceKey(voiceSelect.value);
   voiceSelect.value=selectedVoice;
   intervalIncrement=parseInt(intervalIncrementSelect.value)||parseInt(defaultSettings.intervalIncrement);
-  intervalIncrementValue.textContent=intervalIncrement;
+  intervalIncrementValue.textContent=String(intervalIncrement)+" ms";
   updateThresholdLabels();
   updateFeedbackUI();
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
   playbackSpeedValue.textContent=formatPlaybackSpeed(playbackSpeed);
   beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
   beepVolumeValue.textContent=formatBeepVolume(beepVolume);
+  applyTrainingPresentationSettings();
   applyAdvancedSettingsVisibility(showAdvancedSettingsToggle.checked);
   applyIntervalTimingVisibility(showIntervalTimingToggle.checked);
-  if(sessionState==="active"){
+  if(sessionState==="active" && presentationMode!=="visual"){
     void preloadVoice(selectedVoice).then(()=>{
-      if(sessionState==="active"){
+      if(sessionState==="active" && presentationMode!=="visual"){
         retainOnlyVoiceCache(selectedVoice);
       }
     }).catch(()=>{});
@@ -1363,13 +1453,18 @@ function buildSessionRecord(){
     intervalIncrement,
     voice:selectedVoice,
     playbackSpeed,
+    nBackDepth,
+    numberRangeMin,
+    numberRangeMax,
+    singleDigitOnly,
+    presentationMode,
     includeInTrends:sessionOutcome!=="Manually exited"
   });
 }
 
 function buildLatestTraceRecord(){
   const trimmedTrace=sessionIntervalTrace
-    .slice(2,Math.max(2,sessionIntervalTrace.length-(excludeLastQuestionFromCount ? 1 : 0)))
+    .slice(nBackDepth,Math.max(nBackDepth,sessionIntervalTrace.length-(excludeLastQuestionFromCount ? 1 : 0)))
     .map((point,index)=>({
       questionNumber:index+1,
       interval:point.interval,
@@ -3325,6 +3420,7 @@ function stopStimulusAudioPlayback(){
 }
 
 function playStimulusAudio(num){
+  if(presentationMode==="visual") return;
   const voice=resolveVoiceKey(selectedVoice);
   const entry=voiceAudioCache[voice] || voiceAudioCache[Object.keys(voiceAudioCache)[0]];
   const template=entry&&entry.clips&&entry.clips[num];
@@ -3374,11 +3470,21 @@ function playBeep(force=false){
     void ctx.resume();
   }
 
+  const profiles={
+    clean:{ frequency:880, type:"sine", duration:0.16 },
+    sharp:{ frequency:1760, type:"square", duration:0.1 },
+    low:{ frequency:240, type:"sawtooth", duration:0.24 }
+  };
+  const profile=profiles[beepType] || profiles.clean;
   const o=ctx.createOscillator();
   const g=ctx.createGain();
-  o.frequency.value=1200; g.gain.value=getBeepGain();
+  const gain=getBeepGain();
+  o.type=profile.type;
+  o.frequency.value=profile.frequency;
+  g.gain.setValueAtTime(Math.max(0.0001,gain),ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+profile.duration);
   o.connect(g); g.connect(ctx.destination);
-  o.start(); o.stop(ctx.currentTime+0.12);
+  o.start(); o.stop(ctx.currentTime+profile.duration);
   o.onended=()=>{
     try{
       o.disconnect();
@@ -3398,7 +3504,57 @@ async function closeBeepAudioContext(){
   }catch(e){}
 }
 
-function getRandomNumber(){return Math.floor(Math.random()*9)+1;}
+function getConfiguredNumberPool(){
+  const pool=[];
+  for(let value=numberRangeMin;value<=numberRangeMax;value++){
+    pool.push(value);
+  }
+  return pool.length ? pool : [1];
+}
+
+function pickRandom(values){
+  return values[Math.floor(Math.random()*values.length)];
+}
+
+function isSingleDigitResult(a,b){
+  const result=getExpectedAnswer(a,b);
+  return Number.isFinite(result) && result>=0 && result<=9;
+}
+
+function getRandomNumber(){
+  const pool=getConfiguredNumberPool();
+  if(!singleDigitOnly) return pickRandom(pool);
+
+  const referenceIndex=numbers.length-nBackDepth;
+  if(referenceIndex>=0){
+    const reference=numbers[referenceIndex];
+    const viable=pool.filter(candidate=>isSingleDigitResult(reference,candidate));
+    return viable.length ? pickRandom(viable) : pickRandom(pool);
+  }
+
+  const viableReferences=pool.filter(reference=>pool.some(candidate=>isSingleDigitResult(reference,candidate)));
+  return pickRandom(viableReferences.length ? viableReferences : pool);
+}
+
+function renderVisualStimulus(value){
+  if(presentationMode==="audio"){
+    visualStimulus.textContent="";
+    visualStimulus.classList.add("hidden");
+    return;
+  }
+  visualStimulus.textContent=String(value);
+  visualStimulus.classList.remove("hidden");
+}
+
+let errorFlashTimer=0;
+function triggerErrorFlash(){
+  if(!errorFlashEnabled) return;
+  clearTimeout(errorFlashTimer);
+  document.body.classList.remove("error-flash");
+  void document.body.offsetWidth;
+  document.body.classList.add("error-flash");
+  errorFlashTimer=setTimeout(()=>document.body.classList.remove("error-flash"),280);
+}
 
 function updateFeedbackUI(){
   const fb=document.getElementById("feedback"); fb.innerHTML="";
@@ -3538,10 +3694,12 @@ function resetQuestionStates(){
 
 function createQuestionState(startedAt){
   const traceIndex=Math.max(0,sessionIntervalTrace.length-1);
+  const currentIndex=numbers.length-1;
+  const referenceIndex=currentIndex-nBackDepth;
   return {
     startedAt,
     responseInterval:interval,
-    expectedAnswer:numbers.length>=2 ? getExpectedAnswer(numbers[numbers.length-2],numbers[numbers.length-1]) : null,
+    expectedAnswer:referenceIndex>=0 ? getExpectedAnswer(numbers[referenceIndex],numbers[currentIndex]) : null,
     traceIndex,
     resolved:false
   };
@@ -3578,6 +3736,7 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
     wrongStreak++;
     correctStreak=0;
     playBeep();
+    triggerErrorFlash();
     adjustDifficulty();
   }
 
@@ -3594,7 +3753,12 @@ function isCorrectAnswerInput(questionState,submittedValue,finalizedAt){
 }
 
 function isAllowedSessionClick(target){
-  return target===answer || answer.contains(target) || target===endSessionBtn || endSessionBtn.contains(target);
+  return target===answer
+    || answer.contains(target)
+    || target===numberPad
+    || numberPad.contains(target)
+    || target===endSessionBtn
+    || endSessionBtn.contains(target);
 }
 
 function restoreAnswerFocus(){
@@ -3684,9 +3848,10 @@ function runStimulus(){
     timestamp:now,
     responseTime:null
   });
+  renderVisualStimulus(num);
   playStimulusAudio(num);
 
-  if(numbers.length>=2){
+  if(numbers.length>nBackDepth){
     awaitingAnswer=true;
     responseStartedAt=now;
     responseInterval=interval;
@@ -3709,9 +3874,76 @@ function updateTimer(){
   if(r<=0) stopGame("completed"); else requestAnimationFrame(updateTimer);
 }
 
+function hasViableSingleDigitPair(){
+  if(!singleDigitOnly) return true;
+  const pool=getConfiguredNumberPool();
+  return pool.some(reference=>pool.some(candidate=>isSingleDigitResult(reference,candidate)));
+}
+
+function getTaskInstruction(){
+  const operationLabels={
+    addition:"Add",
+    multiplication:"Multiply",
+    subtraction:"Subtract",
+    difference:"Compare"
+  };
+  const verb=operationLabels[arithmeticMode] || operationLabels.addition;
+  return verb+" each new number using the "+nBackDepth+"-back number.";
+}
+
+function buildNumberPad(){
+  numberPad.innerHTML="";
+  const keys=["1","2","3","4","5","6","7","8","9","−","0","⌫"];
+  keys.forEach(key=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.dataset.key=key;
+    button.textContent=key;
+    button.setAttribute("aria-label",key==="⌫" ? "Backspace" : key==="−" ? "Negative sign" : key);
+    button.addEventListener("click",()=>{
+      if(sessionState!=="active" || answer.disabled) return;
+      if(key==="⌫"){
+        answer.value=answer.value.slice(0,-1);
+      }else if(key==="−"){
+        answer.value=answer.value.startsWith("-") ? answer.value.slice(1) : "-"+answer.value;
+      }else{
+        answer.value+=key;
+      }
+      answer.dispatchEvent(new Event("input",{ bubbles:true }));
+      restoreAnswerFocus();
+    });
+    numberPad.appendChild(button);
+  });
+}
+
+function activateSettingsTab(tabName,focus=false){
+  const validTab=settingsTabButtons.some(button=>button.dataset.settingsTab===tabName) ? tabName : "session";
+  settingsTabButtons.forEach(button=>{
+    const isActive=button.dataset.settingsTab===validTab;
+    button.classList.toggle("is-active",isActive);
+    button.setAttribute("aria-selected",String(isActive));
+    button.tabIndex=isActive?0:-1;
+    if(isActive && focus) button.focus();
+  });
+  settingsTabPanels.forEach(panel=>{
+    const isActive=panel.dataset.settingsPanel===validTab;
+    panel.classList.toggle("is-active",isActive);
+    panel.hidden=!isActive;
+  });
+}
+
 async function startGame(){
   if(sessionState!=="idle") return;
 
+  applyArithmeticMode(modeSelect.value);
+  applyTrainingPresentationSettings();
+  if(!hasViableSingleDigitPair()){
+    numberRangeMinInput.setCustomValidity("This number range cannot produce a single-digit answer for the selected arithmetic mode.");
+    activateSettingsTab("difficulty");
+    numberRangeMinInput.reportValidity();
+    return;
+  }
+  numberRangeMinInput.setCustomValidity("");
   saveSettings();
   setSessionState("starting");
   currentSessionId=generateSessionId();
@@ -3725,13 +3957,18 @@ async function startGame(){
   applyArithmeticMode(modeSelect.value);
   const duration=Math.max(1,parseInt(durationInput.value)||parseInt(defaultSettings.duration))*60000;
   beepEnabled=beepToggle.checked;
+  beepType=BEEP_TYPES.has(beepTypeSelect.value) ? beepTypeSelect.value : defaultSettings.beepType;
   showIntervalTiming=showIntervalTimingToggle.checked;
   selectedVoice=resolveVoiceKey(voiceSelect.value);
   voiceSelect.value=selectedVoice;
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
-  await preloadVoice(selectedVoice);
+  if(presentationMode!=="visual"){
+    await preloadVoice(selectedVoice);
+  }
   if(sessionState!=="starting") return;
-  retainOnlyVoiceCache(selectedVoice);
+  if(presentationMode!=="visual"){
+    retainOnlyVoiceCache(selectedVoice);
+  }
 
   numbers=[]; feedback=[]; responseTimes=[];
   correctStreak=0; wrongStreak=0;
@@ -3754,6 +3991,9 @@ async function startGame(){
   currentIntervalStart=showIntervalTiming?getClockTime():0;
 
   answer.value="";
+  visualStimulus.textContent="";
+  sessionHeading.textContent=getTaskInstruction();
+  buildNumberPad();
 
   currentInterval.textContent=startingInterval;
   updateSessionLimitUI();
@@ -3771,6 +4011,7 @@ async function startGame(){
 
     gameRunning=true;
     setSessionState("active");
+    applyTrainingPresentationSettings();
     answer.focus();
 
     startStimulusScheduler();
@@ -3783,14 +4024,14 @@ function stopGame(reason="manual"){
   if(sessionState!=="active"&&sessionState!=="starting") return;
 
   sessionOutcome=reason==="manual" ? "Manually exited" : "Completed";
-  excludeLastQuestionFromCount=awaitingAnswer && numbers.length>=2 && answer.value.trim()==="";
+  excludeLastQuestionFromCount=awaitingAnswer && numbers.length>nBackDepth && answer.value.trim()==="";
   sessionEndedAt=Date.now();
   gameRunning=false;
   clearTimeout(timeoutId);
   stopStimulusAudioPlayback();
   void closeBeepAudioContext();
 
-  if(awaitingAnswer && numbers.length>=2 && activeQuestionState){
+  if(awaitingAnswer && numbers.length>nBackDepth && activeQuestionState){
     if(answer.value.trim()===""){
       updateLatestTraceResponseTime(responseInterval||interval,activeQuestionState.traceIndex);
     }else{
@@ -3825,7 +4066,7 @@ function stopGame(reason="manual"){
 
 function checkInputLive(event){
   if(sessionState!=="active") return;
-  if(!awaitingAnswer || numbers.length<2 || !activeQuestionState || activeQuestionState.resolved) return;
+  if(!awaitingAnswer || numbers.length<=nBackDepth || !activeQuestionState || activeQuestionState.resolved) return;
 
   const submittedValue=answer.value.trim();
   if(submittedValue==="") return;
@@ -3839,6 +4080,11 @@ const startBtn=document.getElementById("startBtn");
 const endSessionBtn=document.getElementById("endSessionBtn");
 const newSessionBtn=document.getElementById("newSessionBtn");
 const answer=document.getElementById("answer");
+const appHeader=document.getElementById("appHeader");
+const sessionGoalMetric=document.getElementById("sessionGoalMetric");
+const sessionHeading=document.querySelector(".session-heading h2");
+const visualStimulus=document.getElementById("visualStimulus");
+const numberPad=document.getElementById("numberPad");
 const startingIntervalInput=document.getElementById("startingInterval");
 const minimumIntervalInput=document.getElementById("minimumInterval");
 const durationInput=document.getElementById("duration");
@@ -3850,6 +4096,15 @@ const targetCorrectInput=document.getElementById("targetCorrect");
 const targetCorrectField=document.getElementById("targetCorrectField");
 const modeField=document.getElementById("modeField");
 const modeSelect=document.getElementById("modeSelect");
+const nBackDepthSelect=document.getElementById("nBackDepth");
+const numberRangeMinInput=document.getElementById("numberRangeMin");
+const numberRangeMaxInput=document.getElementById("numberRangeMax");
+const singleDigitToggle=document.getElementById("singleDigitToggle");
+const presentationModeSelect=document.getElementById("presentationMode");
+const numberPadToggle=document.getElementById("numberPadToggle");
+const hideAnswerToggle=document.getElementById("hideAnswerToggle");
+const showSessionTimerToggle=document.getElementById("showSessionTimerToggle");
+const errorFlashToggle=document.getElementById("errorFlashToggle");
 const correctThresholdInput=document.getElementById("correctThreshold");
 const incorrectThresholdInput=document.getElementById("incorrectThreshold");
 const showAdvancedSettingsToggle=document.getElementById("showAdvancedSettingsToggle");
@@ -3864,6 +4119,7 @@ const voiceTestBtn=document.getElementById("voiceTestBtn");
 const playbackSpeedSelect=document.getElementById("playbackSpeedSelect");
 const beepVolumeSelect=document.getElementById("beepVolume");
 const beepVolumeValue=document.getElementById("beepVolumeValue");
+const beepTypeSelect=document.getElementById("beepType");
 const beepTestBtn=document.getElementById("beepTestBtn");
 const beepToggle=document.getElementById("beepToggle");
 const themeToggle=document.getElementById("themeToggle");
@@ -3923,6 +4179,8 @@ const historyPaginationSummary=document.getElementById("historyPaginationSummary
 const historyPaginationIndicator=document.getElementById("historyPaginationIndicator");
 const historyPrevPageBtn=document.getElementById("historyPrevPageBtn");
 const historyNextPageBtn=document.getElementById("historyNextPageBtn");
+const settingsTabButtons=[...document.querySelectorAll("[data-settings-tab]")];
+const settingsTabPanels=[...document.querySelectorAll("[data-settings-panel]")];
 const settingsControls=[
   startingIntervalInput,
   minimumIntervalInput,
@@ -3931,21 +4189,48 @@ const settingsControls=[
   endConditionSelect,
   targetCorrectInput,
   modeSelect,
+  nBackDepthSelect,
+  numberRangeMinInput,
+  numberRangeMaxInput,
+  singleDigitToggle,
+  presentationModeSelect,
+  numberPadToggle,
+  hideAnswerToggle,
+  showSessionTimerToggle,
+  errorFlashToggle,
   correctThresholdInput,
   incorrectThresholdInput,
   showAdvancedSettingsToggle,
   voiceSelect,
   playbackSpeedSelect,
   beepVolumeSelect,
+  beepTypeSelect,
   beepToggle,
   themeToggle,
   showIntervalTimingToggle
 ];
 
+settingsTabButtons.forEach((button,index)=>{
+  button.addEventListener("click",()=>activateSettingsTab(button.dataset.settingsTab));
+  button.addEventListener("keydown",event=>{
+    if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key)) return;
+    event.preventDefault();
+    let nextIndex=index;
+    if(event.key==="ArrowLeft") nextIndex=(index-1+settingsTabButtons.length)%settingsTabButtons.length;
+    if(event.key==="ArrowRight") nextIndex=(index+1)%settingsTabButtons.length;
+    if(event.key==="Home") nextIndex=0;
+    if(event.key==="End") nextIndex=settingsTabButtons.length-1;
+    activateSettingsTab(settingsTabButtons[nextIndex].dataset.settingsTab,true);
+  });
+});
+
 startBtn.onclick=startGame;
 endSessionBtn.onclick=()=>stopGame("manual");
 newSessionBtn.onclick=()=>setSessionState("idle");
-resetSettingsBtn.onclick=resetSettingsToDefault;
+resetSettingsBtn.onclick=()=>{
+  resetSettingsToDefault();
+  activateSettingsTab("session");
+};
 historyBtn.onclick=()=>{
   setHistoryVisible(true);
   void refreshHistoryView();
@@ -4112,6 +4397,8 @@ document.addEventListener("visibilitychange",()=>{
 async function initializeApp(){
   await refreshVoiceLibrary();
   applySettings(readSavedSettings());
+  buildNumberPad();
+  activateSettingsTab("session");
   setSessionState("idle");
   historyVisible=false;
   updateAppViews();

@@ -447,6 +447,9 @@
     }
 
     answer.value = String(saved.answerValue || "");
+    if (numbers.length) {
+      renderVisualStimulus(numbers[numbers.length - 1]);
+    }
     gameRunning = false;
     isPaused = true;
     pauseStartedWallTime = Date.now();
@@ -489,6 +492,7 @@
 
     if (replayLastStimulus && numbers.length) {
       const lastNumber = numbers[numbers.length - 1];
+      renderVisualStimulus(lastNumber);
       playStimulusAudio(lastNumber);
 
       if (activeQuestionState && !activeQuestionState.resolved) {
@@ -599,19 +603,24 @@
   startGame = async function stableStartGame() {
     if (sessionState !== "idle") return;
 
-    const originalText = startBtn.textContent;
+    const label = startBtn.querySelector("span");
+    const originalText = label ? label.textContent : startBtn.textContent;
     startBtn.disabled = true;
-    startBtn.textContent = "Checking voice…";
+    if (label) label.textContent = presentationMode === "visual" ? "Starting…" : "Checking voice…";
+    else startBtn.textContent = presentationMode === "visual" ? "Starting…" : "Checking voice…";
 
     try {
-      const report = await refreshVoiceSafetyStatus();
-      if (!report.ok) return;
+      if (presentationMode !== "visual") {
+        const report = await refreshVoiceSafetyStatus();
+        if (!report.ok) return;
+      }
       await originalStartGame();
     } finally {
       if (sessionState === "idle") {
         startBtn.disabled = false;
       }
-      startBtn.textContent = originalText;
+      if (label) label.textContent = originalText;
+      else startBtn.textContent = originalText;
     }
   };
 
