@@ -38,7 +38,11 @@
     </h2>
     <div id="sessionGoalMetric" class="training-timer">
       <span class="training-timer-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle class="training-timer-track" cx="12" cy="12" r="9" pathLength="100"/>
+          <circle id="sessionTimerProgress" class="training-timer-progress" cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)"/>
+          <path class="training-timer-hands" d="M12 7v5l3 2"/>
+        </svg>
       </span>
       <span class="training-timer-copy">
         <strong><span id="timeLeft">0:00</span><span id="sessionLimitSuffix"></span></strong>

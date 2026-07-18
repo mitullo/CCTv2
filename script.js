@@ -3,6 +3,7 @@ let intervalIncrement=100;
 let numbers=[], feedback=[], responseTimes=[];
 let correctStreak=0, wrongStreak=0;
 let gameRunning=false, timeoutId, endTime;
+let sessionTimerTotalSeconds=0;
 let awaitingAnswer=false, beepEnabled=true;
 let sessionState="idle";
 let isStimulusTick=false;
@@ -3401,6 +3402,7 @@ function updateSessionLimitUI(){
     sessionLimitLabel.textContent="correct answers";
     timeLeft.textContent=correctAnswers + " / " + targetCorrect;
     sessionLimitSuffix.textContent="";
+    renderSessionTimerProgress(targetCorrect>0 ? correctAnswers/targetCorrect : 0);
     return;
   }
 
@@ -3415,7 +3417,18 @@ function formatSessionCountdown(totalSeconds){
 }
 
 function renderSessionCountdown(totalSeconds){
-  timeLeft.textContent=formatSessionCountdown(totalSeconds);
+  const remaining=Math.max(0,Math.ceil(Number(totalSeconds)||0));
+  timeLeft.textContent=formatSessionCountdown(remaining);
+  renderSessionTimerProgress(
+    sessionTimerTotalSeconds>0 ? remaining/sessionTimerTotalSeconds : 0
+  );
+}
+
+function renderSessionTimerProgress(fraction){
+  const normalized=Math.max(0,Math.min(1,Number(fraction)||0));
+  if(sessionTimerProgress){
+    sessionTimerProgress.style.strokeDashoffset=String(100-(normalized*100));
+  }
 }
 
 function formatVoiceLabel(voiceKey){
@@ -4304,6 +4317,7 @@ async function startGame(){
   buildNumberPad();
 
   currentInterval.textContent=startingInterval;
+  sessionTimerTotalSeconds=endCondition==="timer" ? duration/1000 : 0;
   updateSessionLimitUI();
   if(endCondition==="timer"){
     endTime=sessionStartedAt+duration;
@@ -4462,6 +4476,7 @@ const resetSettingsBtn=document.getElementById("resetSettingsBtn");
 const playbackSpeedValue=document.getElementById("playbackSpeedValue");
 const currentInterval=document.getElementById("currentInterval");
 const timeLeft=document.getElementById("timeLeft");
+const sessionTimerProgress=document.getElementById("sessionTimerProgress");
 const sessionLimitLabel=document.getElementById("sessionLimitLabel");
 const sessionLimitSuffix=document.getElementById("sessionLimitSuffix");
 const intervalStats=document.getElementById("intervalStats");
