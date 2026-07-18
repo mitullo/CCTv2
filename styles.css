@@ -2478,42 +2478,16 @@ input {
   width: 38px;
   height: 38px;
   flex: 0 0 auto;
-  border: 0;
+  border: 5px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  border-top-color: var(--accent);
   border-radius: 50%;
   background: var(--surface-raised);
   color: var(--accent);
 }
 
 .training-timer-icon svg {
-  width: 38px;
-  height: 38px;
-  overflow: visible;
-}
-
-.training-timer-track,
-.training-timer-progress {
-  fill: none;
-  stroke-width: 2.75;
-}
-
-.training-timer-track {
-  stroke: color-mix(in srgb, var(--accent) 14%, var(--border));
-}
-
-.training-timer-progress {
-  stroke: var(--accent);
-  stroke-dasharray: 100;
-  stroke-dashoffset: 100;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 180ms linear;
-}
-
-.training-timer-hands {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: 15px;
+  height: 15px;
 }
 
 .training-timer-copy {
@@ -2711,10 +2685,6 @@ input {
   .training-timer-icon {
     width: 32px;
     height: 32px;
-  }
-
-  .training-timer-icon svg {
-    width: 32px;
-    height: 32px;
+    border-width: 4px;
   }
 }

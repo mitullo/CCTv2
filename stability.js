@@ -361,8 +361,7 @@
           elapsedMs: getQuestionElapsedMs()
         } : null,
         activeElapsedMs,
-        remainingMs,
-        sessionTimerTotalSeconds
+        remainingMs
       }
     };
   }
@@ -436,9 +435,6 @@
 
     const elapsedActiveMs = Math.max(0, Number(saved.activeElapsedMs) || 0);
     pausedTimerRemainingMs = Math.max(0, Number(saved.remainingMs) || 0);
-    sessionTimerTotalSeconds = endCondition === "timer"
-      ? Math.max(1, Number(saved.sessionTimerTotalSeconds) || ((elapsedActiveMs + pausedTimerRemainingMs) / 1000))
-      : 0;
     sessionStartedAt = Date.now() - elapsedActiveMs;
     sessionEndedAt = 0;
     endTime = endCondition === "timer" ? Date.now() + pausedTimerRemainingMs : 0;
