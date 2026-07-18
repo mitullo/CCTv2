@@ -44,6 +44,9 @@ const MAX_BEEP_VOLUME_PERCENT=100;
 const MAX_BEEP_GAIN=0.52;
 const PRESENTATION_MODES=new Set(["audio","both","visual"]);
 const BEEP_TYPES=new Set(["clean","sharp","low"]);
+const ADAPTATION_MODES=new Set(["streak","perTrial","target"]);
+const NUMBER_PAD_ORDERS=new Set(["standard","reverse","random"]);
+const THEME_MODES=new Set(["light","cyan","dark"]);
 const defaultSettings={
   startingInterval:"1500",
   minimumInterval:"700",
@@ -66,11 +69,31 @@ const defaultSettings={
   numberRangeMin:"1",
   numberRangeMax:"9",
   singleDigitOnly:false,
+  answerRangeEnabled:false,
+  answerRangeMin:"0",
+  answerRangeMax:"18",
   presentationMode:"audio",
   numberPadEnabled:false,
+  numberPadSize:"1",
+  numberPadColumns:"3",
+  numberPadOrder:"standard",
   hideAnswerEnabled:false,
+  minimalInputEnabled:false,
+  fumbleEnabled:false,
+  fatFingerEnabled:false,
+  equationStreamEnabled:false,
   showSessionGoal:true,
-  errorFlashEnabled:false
+  showIntervalMetric:true,
+  showFeedbackIndicators:true,
+  compactTraining:false,
+  errorFlashEnabled:false,
+  themeMode:"light",
+  adaptationMode:"streak",
+  perTrialCorrectStep:"20",
+  perTrialWrongStep:"20",
+  targetAccuracy:"85",
+  targetAccuracyWindow:"20",
+  targetAccuracyStepCap:"40"
 };
 
 let intervalCounts={}, intervalTime={}, currentIntervalStart=0;
@@ -84,11 +107,32 @@ let nBackDepth=1;
 let numberRangeMin=1;
 let numberRangeMax=9;
 let singleDigitOnly=false;
+let answerRangeEnabled=false;
+let answerRangeMin=0;
+let answerRangeMax=18;
 let presentationMode="audio";
 let numberPadEnabled=false;
+let numberPadSize=1;
+let numberPadColumns=3;
+let numberPadOrder="standard";
 let hideAnswerEnabled=false;
+let minimalInputEnabled=false;
+let fumbleEnabled=false;
+let fatFingerEnabled=false;
+let equationStreamEnabled=false;
 let showSessionGoal=true;
+let showIntervalMetric=true;
+let showFeedbackIndicators=true;
+let compactTraining=false;
 let errorFlashEnabled=false;
+let themeMode="light";
+let adaptationMode="streak";
+let perTrialCorrectStep=20;
+let perTrialWrongStep=20;
+let targetAccuracy=85;
+let targetAccuracyWindow=20;
+let targetAccuracyStepCap=40;
+let adaptiveAccuracyWindow=[];
 let voiceAudioCache={};
 let activeStimulusAudios=new Set();
 let voiceLibrary={};
@@ -161,6 +205,17 @@ function normalizeSavedSettings(parsed){
     normalizedRangeMin,
     clampInteger(parsed.numberRangeMax,parseInt(defaultSettings.numberRangeMax,10),1,9)
   );
+  const normalizedAnswerMin=clampInteger(parsed.answerRangeMin,parseInt(defaultSettings.answerRangeMin,10),-99,999);
+  const normalizedAnswerMax=Math.max(
+    normalizedAnswerMin,
+    clampInteger(parsed.answerRangeMax,parseInt(defaultSettings.answerRangeMax,10),-99,999)
+  );
+  const normalizedTheme=THEME_MODES.has(parsed.themeMode)
+    ? parsed.themeMode
+    : (parsed.darkMode ? "dark" : defaultSettings.themeMode);
+  const normalizedPadSize=["0.8","1","1.2","1.4"].includes(String(parsed.numberPadSize))
+    ? String(parsed.numberPadSize)
+    : defaultSettings.numberPadSize;
 
   return {
     ...defaultSettings,
@@ -181,15 +236,35 @@ function normalizeSavedSettings(parsed){
     numberRangeMin:String(normalizedRangeMin),
     numberRangeMax:String(normalizedRangeMax),
     singleDigitOnly:!!parsed.singleDigitOnly,
+    answerRangeEnabled:!!parsed.answerRangeEnabled,
+    answerRangeMin:String(normalizedAnswerMin),
+    answerRangeMax:String(normalizedAnswerMax),
     presentationMode:PRESENTATION_MODES.has(parsed.presentationMode) ? parsed.presentationMode : defaultSettings.presentationMode,
     numberPadEnabled:!!parsed.numberPadEnabled,
+    numberPadSize:normalizedPadSize,
+    numberPadColumns:String(clampInteger(parsed.numberPadColumns,parseInt(defaultSettings.numberPadColumns,10),3,6)),
+    numberPadOrder:NUMBER_PAD_ORDERS.has(parsed.numberPadOrder) ? parsed.numberPadOrder : defaultSettings.numberPadOrder,
     hideAnswerEnabled:!!parsed.hideAnswerEnabled,
+    minimalInputEnabled:!!parsed.minimalInputEnabled,
+    fumbleEnabled:!!parsed.fumbleEnabled,
+    fatFingerEnabled:!!parsed.fatFingerEnabled,
+    equationStreamEnabled:!!parsed.equationStreamEnabled,
     showSessionGoal:parsed.showSessionGoal ?? defaultSettings.showSessionGoal,
+    showIntervalMetric:parsed.showIntervalMetric ?? defaultSettings.showIntervalMetric,
+    showFeedbackIndicators:parsed.showFeedbackIndicators ?? defaultSettings.showFeedbackIndicators,
+    compactTraining:!!parsed.compactTraining,
     errorFlashEnabled:!!parsed.errorFlashEnabled,
+    themeMode:normalizedTheme,
+    darkMode:normalizedTheme==="dark",
+    adaptationMode:ADAPTATION_MODES.has(parsed.adaptationMode) ? parsed.adaptationMode : defaultSettings.adaptationMode,
+    perTrialCorrectStep:String(clampInteger(parsed.perTrialCorrectStep,parseInt(defaultSettings.perTrialCorrectStep,10),1,200)),
+    perTrialWrongStep:String(clampInteger(parsed.perTrialWrongStep,parseInt(defaultSettings.perTrialWrongStep,10),1,200)),
+    targetAccuracy:String(clampInteger(parsed.targetAccuracy,parseInt(defaultSettings.targetAccuracy,10),50,99)),
+    targetAccuracyWindow:String(clampInteger(parsed.targetAccuracyWindow,parseInt(defaultSettings.targetAccuracyWindow,10),5,50)),
+    targetAccuracyStepCap:String(clampInteger(parsed.targetAccuracyStepCap,parseInt(defaultSettings.targetAccuracyStepCap,10),5,200)),
     showAdvancedSettings:!!parsed.showAdvancedSettings,
     showIntervalTiming:!!parsed.showIntervalTiming,
-    beepEnabled:parsed.beepEnabled ?? defaultSettings.beepEnabled,
-    darkMode:parsed.darkMode ?? defaultSettings.darkMode
+    beepEnabled:parsed.beepEnabled ?? defaultSettings.beepEnabled
   };
 }
 
@@ -210,6 +285,9 @@ function updateAppViews(){
   endSessionBtn.disabled=!sessionVisible;
   if(numberPad){
     numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+  }
+  if(equationStream){
+    equationStream.classList.toggle("hidden",!equationStreamEnabled || sessionState!=="active");
   }
 }
 
@@ -271,18 +349,38 @@ function getSettingsFromForm(){
     beepVolume:beepVolumeSelect.value,
     beepType:beepTypeSelect.value,
     beepEnabled:beepToggle.checked,
-    darkMode:themeToggle.checked,
     showAdvancedSettings:showAdvancedSettingsToggle.checked,
     showIntervalTiming:showIntervalTimingToggle.checked,
     nBackDepth:nBackDepthSelect.value,
     numberRangeMin:numberRangeMinInput.value,
     numberRangeMax:numberRangeMaxInput.value,
     singleDigitOnly:singleDigitToggle.checked,
+    answerRangeEnabled:answerRangeToggle.checked,
+    answerRangeMin:answerRangeMinInput.value,
+    answerRangeMax:answerRangeMaxInput.value,
     presentationMode:presentationModeSelect.value,
     numberPadEnabled:numberPadToggle.checked,
+    numberPadSize:numberPadSizeSelect.value,
+    numberPadColumns:numberPadColumnsSelect.value,
+    numberPadOrder:numberPadOrderSelect.value,
     hideAnswerEnabled:hideAnswerToggle.checked,
+    minimalInputEnabled:minimalInputToggle.checked,
+    fumbleEnabled:fumbleToggle.checked,
+    fatFingerEnabled:fatFingerToggle.checked,
+    equationStreamEnabled:equationStreamToggle.checked,
     showSessionGoal:showSessionTimerToggle.checked,
-    errorFlashEnabled:errorFlashToggle.checked
+    showIntervalMetric:showIntervalMetricToggle.checked,
+    showFeedbackIndicators:showFeedbackIndicatorsToggle.checked,
+    compactTraining:compactTrainingToggle.checked,
+    errorFlashEnabled:errorFlashToggle.checked,
+    themeMode:themeModeSelect.value,
+    darkMode:themeModeSelect.value==="dark",
+    adaptationMode:adaptationModeSelect.value,
+    perTrialCorrectStep:perTrialCorrectStepInput.value,
+    perTrialWrongStep:perTrialWrongStepInput.value,
+    targetAccuracy:targetAccuracyInput.value,
+    targetAccuracyWindow:targetAccuracyWindowInput.value,
+    targetAccuracyStepCap:targetAccuracyStepCapInput.value
   };
 }
 
@@ -301,8 +399,10 @@ function resetSettingsToDefault(){
   saveSettings();
 }
 
-function applyTheme(isDark){
-  document.body.classList.toggle("theme-dark",isDark);
+function applyTheme(mode){
+  themeMode=THEME_MODES.has(mode) ? mode : defaultSettings.themeMode;
+  document.body.classList.toggle("theme-dark",themeMode==="dark");
+  document.body.classList.toggle("theme-cyan",themeMode==="cyan");
 }
 
 function normalizeNumberRangeInputs(){
@@ -314,6 +414,42 @@ function normalizeNumberRangeInputs(){
   numberRangeMax=maxValue;
 }
 
+function normalizeAnswerRangeInputs(){
+  const minValue=clampInteger(answerRangeMinInput.value,0,-99,999);
+  const maxValue=Math.max(minValue,clampInteger(answerRangeMaxInput.value,18,-99,999));
+  answerRangeMinInput.value=String(minValue);
+  answerRangeMaxInput.value=String(maxValue);
+  answerRangeMin=minValue;
+  answerRangeMax=maxValue;
+}
+
+function setDependentOptions(container,enabled,controls){
+  if(container){
+    container.classList.toggle("locked",!enabled);
+    container.setAttribute("aria-disabled",String(!enabled));
+  }
+  controls.forEach(control=>{
+    control.disabled=!enabled;
+  });
+}
+
+function updateDependentOptionStates(){
+  setDependentOptions(answerRangeOptions,answerRangeToggle.checked,[answerRangeMinInput,answerRangeMaxInput]);
+  setDependentOptions(numberPadOptions,numberPadToggle.checked,[numberPadSizeSelect,numberPadColumnsSelect,numberPadOrderSelect]);
+
+  const selectedMode=ADAPTATION_MODES.has(adaptationModeSelect.value)
+    ? adaptationModeSelect.value
+    : defaultSettings.adaptationMode;
+  setDependentOptions(perTrialAdaptationOptions,selectedMode==="perTrial",[perTrialCorrectStepInput,perTrialWrongStepInput]);
+  setDependentOptions(targetAccuracyOptions,selectedMode==="target",[targetAccuracyInput,targetAccuracyWindowInput,targetAccuracyStepCapInput]);
+  const streakEnabled=selectedMode==="streak";
+  streakThresholdSection.classList.toggle("locked",!streakEnabled);
+  streakThresholdSection.setAttribute("aria-disabled",String(!streakEnabled));
+  [correctThresholdInput,incorrectThresholdInput,normalThresholdPresetBtn,highAccuracyPresetBtn].forEach(control=>{
+    control.disabled=!streakEnabled;
+  });
+}
+
 function applyTrainingPresentationSettings(){
   presentationMode=PRESENTATION_MODES.has(presentationModeSelect.value) ? presentationModeSelect.value : defaultSettings.presentationMode;
   numberPadEnabled=numberPadToggle.checked;
@@ -322,13 +458,38 @@ function applyTrainingPresentationSettings(){
   errorFlashEnabled=errorFlashToggle.checked;
   nBackDepth=clampInteger(nBackDepthSelect.value,1,1,5);
   singleDigitOnly=singleDigitToggle.checked;
+  answerRangeEnabled=answerRangeToggle.checked;
   beepType=BEEP_TYPES.has(beepTypeSelect.value) ? beepTypeSelect.value : defaultSettings.beepType;
+  numberPadSize=parseFloat(numberPadSizeSelect.value)||1;
+  numberPadColumns=clampInteger(numberPadColumnsSelect.value,3,3,6);
+  numberPadOrder=NUMBER_PAD_ORDERS.has(numberPadOrderSelect.value) ? numberPadOrderSelect.value : defaultSettings.numberPadOrder;
+  minimalInputEnabled=minimalInputToggle.checked;
+  fumbleEnabled=fumbleToggle.checked;
+  fatFingerEnabled=fatFingerToggle.checked;
+  equationStreamEnabled=equationStreamToggle.checked;
+  showIntervalMetric=showIntervalMetricToggle.checked;
+  showFeedbackIndicators=showFeedbackIndicatorsToggle.checked;
+  compactTraining=compactTrainingToggle.checked;
+  adaptationMode=ADAPTATION_MODES.has(adaptationModeSelect.value) ? adaptationModeSelect.value : defaultSettings.adaptationMode;
+  perTrialCorrectStep=clampInteger(perTrialCorrectStepInput.value,20,1,200);
+  perTrialWrongStep=clampInteger(perTrialWrongStepInput.value,20,1,200);
+  targetAccuracy=clampInteger(targetAccuracyInput.value,85,50,99);
+  targetAccuracyWindow=clampInteger(targetAccuracyWindowInput.value,20,5,50);
+  targetAccuracyStepCap=clampInteger(targetAccuracyStepCapInput.value,40,5,200);
   normalizeNumberRangeInputs();
+  normalizeAnswerRangeInputs();
+  updateDependentOptionStates();
 
   answer.classList.toggle("is-masked",hideAnswerEnabled);
   sessionGoalMetric.classList.toggle("hidden",!showSessionGoal);
+  currentIntervalMetric.classList.toggle("hidden",!showIntervalMetric);
+  feedbackElement.classList.toggle("hidden",!showFeedbackIndicators);
+  sessionView.classList.toggle("compact-training",compactTraining);
   visualStimulus.classList.toggle("hidden",presentationMode==="audio");
   numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+  numberPad.style.setProperty("--number-pad-columns",String(numberPadColumns));
+  numberPad.style.setProperty("--number-pad-scale",String(numberPadSize));
+  equationStream.classList.toggle("hidden",!equationStreamEnabled || sessionState!=="active");
 }
 
 function formatPlaybackSpeed(value){
@@ -348,6 +509,7 @@ function updateThresholdLabels(){
 }
 
 function getIndicatorSlotCount(){
+  if(adaptationMode!=="streak") return 1;
   const thresholds=getThresholds();
   return Math.max(thresholds.correct,thresholds.incorrect);
 }
@@ -381,21 +543,40 @@ function applySettings(settings){
   beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
   beepTypeSelect.value=BEEP_TYPES.has(settings.beepType) ? settings.beepType : defaultSettings.beepType;
   beepToggle.checked=settings.beepEnabled;
-  themeToggle.checked=settings.darkMode;
   showIntervalTimingToggle.checked=settings.showIntervalTiming;
   nBackDepthSelect.value=settings.nBackDepth;
   numberRangeMinInput.value=settings.numberRangeMin;
   numberRangeMaxInput.value=settings.numberRangeMax;
   singleDigitToggle.checked=settings.singleDigitOnly;
+  answerRangeToggle.checked=settings.answerRangeEnabled;
+  answerRangeMinInput.value=settings.answerRangeMin;
+  answerRangeMaxInput.value=settings.answerRangeMax;
   presentationModeSelect.value=settings.presentationMode;
   numberPadToggle.checked=settings.numberPadEnabled;
+  numberPadSizeSelect.value=settings.numberPadSize;
+  numberPadColumnsSelect.value=settings.numberPadColumns;
+  numberPadOrderSelect.value=settings.numberPadOrder;
   hideAnswerToggle.checked=settings.hideAnswerEnabled;
+  minimalInputToggle.checked=settings.minimalInputEnabled;
+  fumbleToggle.checked=settings.fumbleEnabled;
+  fatFingerToggle.checked=settings.fatFingerEnabled;
+  equationStreamToggle.checked=settings.equationStreamEnabled;
   showSessionTimerToggle.checked=settings.showSessionGoal;
+  showIntervalMetricToggle.checked=settings.showIntervalMetric;
+  showFeedbackIndicatorsToggle.checked=settings.showFeedbackIndicators;
+  compactTrainingToggle.checked=settings.compactTraining;
   errorFlashToggle.checked=settings.errorFlashEnabled;
+  themeModeSelect.value=settings.themeMode;
+  adaptationModeSelect.value=settings.adaptationMode;
+  perTrialCorrectStepInput.value=settings.perTrialCorrectStep;
+  perTrialWrongStepInput.value=settings.perTrialWrongStep;
+  targetAccuracyInput.value=settings.targetAccuracy;
+  targetAccuracyWindowInput.value=settings.targetAccuracyWindow;
+  targetAccuracyStepCapInput.value=settings.targetAccuracyStepCap;
   intervalIncrementValue.textContent=String(settings.intervalIncrement)+" ms";
   updateThresholdLabels();
   currentInterval.textContent=settings.startingInterval;
-  applyTheme(settings.darkMode);
+  applyTheme(settings.themeMode);
   intervalIncrement=parseInt(intervalIncrementSelect.value)||parseInt(defaultSettings.intervalIncrement);
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
   showAdvancedSettingsToggle.checked=settings.showAdvancedSettings;
@@ -406,7 +587,7 @@ function applySettings(settings){
 }
 
 function handleSettingsChange(){
-  applyTheme(themeToggle.checked);
+  applyTheme(themeModeSelect.value);
   applyArithmeticMode(modeSelect.value);
   selectedVoice=resolveVoiceKey(voiceSelect.value);
   voiceSelect.value=selectedVoice;
@@ -419,6 +600,7 @@ function handleSettingsChange(){
   beepVolume=normalizeBeepVolumeSetting(beepVolumeSelect.value);
   beepVolumeValue.textContent=formatBeepVolume(beepVolume);
   applyTrainingPresentationSettings();
+  buildNumberPad();
   applyAdvancedSettingsVisibility(showAdvancedSettingsToggle.checked);
   applyIntervalTimingVisibility(showIntervalTimingToggle.checked);
   if(sessionState==="active" && presentationMode!=="visual"){
@@ -1457,7 +1639,16 @@ function buildSessionRecord(){
     numberRangeMin,
     numberRangeMax,
     singleDigitOnly,
+    answerRangeEnabled,
+    answerRangeMin,
+    answerRangeMax,
     presentationMode,
+    numberPadEnabled,
+    minimalInputEnabled,
+    fumbleEnabled,
+    fatFingerEnabled,
+    adaptationMode,
+    targetAccuracy,
     includeInTrends:sessionOutcome!=="Manually exited"
   });
 }
@@ -3521,18 +3712,26 @@ function isSingleDigitResult(a,b){
   return Number.isFinite(result) && result>=0 && result<=9;
 }
 
+function isAllowedGeneratedAnswer(a,b){
+  const result=getExpectedAnswer(a,b);
+  if(!Number.isFinite(result)) return false;
+  if(singleDigitOnly && (result<0 || result>9)) return false;
+  if(answerRangeEnabled && (result<answerRangeMin || result>answerRangeMax)) return false;
+  return true;
+}
+
 function getRandomNumber(){
   const pool=getConfiguredNumberPool();
-  if(!singleDigitOnly) return pickRandom(pool);
+  if(!singleDigitOnly && !answerRangeEnabled) return pickRandom(pool);
 
   const referenceIndex=numbers.length-nBackDepth;
   if(referenceIndex>=0){
     const reference=numbers[referenceIndex];
-    const viable=pool.filter(candidate=>isSingleDigitResult(reference,candidate));
+    const viable=pool.filter(candidate=>isAllowedGeneratedAnswer(reference,candidate));
     return viable.length ? pickRandom(viable) : pickRandom(pool);
   }
 
-  const viableReferences=pool.filter(reference=>pool.some(candidate=>isSingleDigitResult(reference,candidate)));
+  const viableReferences=pool.filter(reference=>pool.some(candidate=>isAllowedGeneratedAnswer(reference,candidate)));
   return pickRandom(viableReferences.length ? viableReferences : pool);
 }
 
@@ -3658,7 +3857,35 @@ function changeInterval(newInterval){
   }
 }
 
-function adjustDifficulty(){
+function adjustDifficulty(isCorrect){
+  if(adaptationMode==="perTrial"){
+    changeInterval(interval+(isCorrect ? -perTrialCorrectStep : perTrialWrongStep));
+    correctStreak=0;
+    wrongStreak=0;
+    document.getElementById("currentInterval").textContent=interval;
+    return;
+  }
+
+  if(adaptationMode==="target"){
+    adaptiveAccuracyWindow.push(!!isCorrect);
+    if(adaptiveAccuracyWindow.length>targetAccuracyWindow){
+      adaptiveAccuracyWindow.splice(0,adaptiveAccuracyWindow.length-targetAccuracyWindow);
+    }
+    if(adaptiveAccuracyWindow.length>=5){
+      const actual=adaptiveAccuracyWindow.filter(Boolean).length/adaptiveAccuracyWindow.length;
+      const target=targetAccuracy/100;
+      const difference=actual-target;
+      if(Math.abs(difference)>=0.02){
+        const step=Math.max(1,Math.min(targetAccuracyStepCap,Math.round(Math.abs(difference)*targetAccuracyStepCap*2)));
+        changeInterval(interval+(difference>0 ? -step : step));
+      }
+    }
+    correctStreak=0;
+    wrongStreak=0;
+    document.getElementById("currentInterval").textContent=interval;
+    return;
+  }
+
   const t=getThresholds();
 
   if(correctStreak>=t.correct){
@@ -3700,33 +3927,84 @@ function createQuestionState(startedAt){
     startedAt,
     responseInterval:interval,
     expectedAnswer:referenceIndex>=0 ? getExpectedAnswer(numbers[referenceIndex],numbers[currentIndex]) : null,
+    referenceValue:referenceIndex>=0 ? numbers[referenceIndex] : null,
+    currentValue:currentIndex>=0 ? numbers[currentIndex] : null,
+    operation:arithmeticMode,
     traceIndex,
     resolved:false
   };
+}
+
+function getOperationSymbol(mode){
+  return ({ addition:"+", multiplication:"×", subtraction:"−", difference:"|−|" })[mode] || "+";
+}
+
+function getAnswerMatchType(questionState,submittedValue){
+  if(!questionState || questionState.resolved || questionState.expectedAnswer===null) return null;
+  const normalized=String(submittedValue ?? "").trim();
+  if(normalized==="") return null;
+  const expected=String(questionState.expectedAnswer);
+  if(normalized===expected) return "exact";
+
+  if(minimalInputEnabled && normalized===String(Math.abs(questionState.expectedAnswer)%10)){
+    return "ones";
+  }
+
+  const expectedNegative=expected.startsWith("-");
+  const submittedNegative=normalized.startsWith("-");
+  const expectedDigits=expected.replace(/^-/,"");
+  const submittedDigits=normalized.replace(/^-/,"");
+  if(expectedNegative!==submittedNegative) return null;
+
+  if(fumbleEnabled && submittedDigits.length>1 && submittedDigits.split("").reverse().join("")===expectedDigits){
+    return "fumble";
+  }
+  if(fatFingerEnabled && submittedDigits.length>expectedDigits.length && submittedDigits.includes(expectedDigits)){
+    return "fatFinger";
+  }
+  return null;
+}
+
+function renderEquationStreamEntry(questionState,submittedValue,isCorrect){
+  if(!equationStreamEnabled || !equationStream || questionState.referenceValue===null) return;
+  const row=document.createElement("div");
+  row.className=`equation-entry ${isCorrect ? "is-correct" : "is-wrong"}`;
+  const submitted=String(submittedValue ?? "").trim();
+  const equation=`${questionState.referenceValue} ${getOperationSymbol(questionState.operation)} ${questionState.currentValue} = ${questionState.expectedAnswer}`;
+  row.textContent=submitted && submitted!==String(questionState.expectedAnswer)
+    ? `${equation} · entered ${submitted}`
+    : equation;
+  equationStream.prepend(row);
+  while(equationStream.children.length>30){
+    equationStream.lastElementChild.remove();
+  }
 }
 
 function finalizeQuestionState(questionState,submittedValue,finalizedAt){
   if(!questionState || questionState.resolved) return false;
 
   const resolvedAt=Number.isFinite(Number(finalizedAt)) ? Number(finalizedAt) : getClockTime();
-  const isCorrect=isCorrectAnswerInput(questionState,submittedValue,resolvedAt);
+  const answerMatchType=getAnswerMatchType(questionState,submittedValue);
+  const isCorrect=answerMatchType!==null;
   const responseTime=isCorrect
     ? Math.min(Math.max(0,questionState.startedAt ? resolvedAt-questionState.startedAt : 0),questionState.responseInterval || interval)
     : (questionState.responseInterval || interval);
 
   questionState.resolved=true;
+  questionState.answerMatchType=answerMatchType;
 
   if(questionState===activeQuestionState){
     clearPendingAnswer();
   }
 
   recordScoredItem(isCorrect,responseTime,questionState.traceIndex);
+  renderEquationStreamEntry(questionState,submittedValue,isCorrect);
 
   if(isCorrect){
     setFeedbackIndicators("green",correctStreak+1);
     correctStreak++;
     wrongStreak=0;
-    adjustDifficulty();
+    adjustDifficulty(true);
     updateSessionLimitUI();
     if(endCondition==="correct"&&correctAnswers>=targetCorrect){
       stopGame("completed");
@@ -3737,19 +4015,14 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
     correctStreak=0;
     playBeep();
     triggerErrorFlash();
-    adjustDifficulty();
+    adjustDifficulty(false);
   }
 
   return isCorrect;
 }
 
 function isCorrectAnswerInput(questionState,submittedValue,finalizedAt){
-  if(!questionState || questionState.resolved) return false;
-
-  const normalizedValue=String(submittedValue ?? "").trim();
-  return normalizedValue!==""
-    && questionState.expectedAnswer!==null
-    && normalizedValue===String(questionState.expectedAnswer);
+  return getAnswerMatchType(questionState,submittedValue)!==null;
 }
 
 function isAllowedSessionClick(target){
@@ -3831,6 +4104,7 @@ function runStimulus(){
   if(!gameRunning)return;
 
   isStimulusTick=true;
+  if(numberPadEnabled && numberPadOrder==="random") buildNumberPad();
 
   const expiredQuestionState=activeQuestionState;
   if(expiredQuestionState && !expiredQuestionState.resolved){
@@ -3874,10 +4148,10 @@ function updateTimer(){
   if(r<=0) stopGame("completed"); else requestAnimationFrame(updateTimer);
 }
 
-function hasViableSingleDigitPair(){
-  if(!singleDigitOnly) return true;
+function hasViableNumberPair(){
+  if(!singleDigitOnly && !answerRangeEnabled) return true;
   const pool=getConfiguredNumberPool();
-  return pool.some(reference=>pool.some(candidate=>isSingleDigitResult(reference,candidate)));
+  return pool.some(reference=>pool.some(candidate=>isAllowedGeneratedAnswer(reference,candidate)));
 }
 
 function getTaskInstruction(){
@@ -3893,7 +4167,16 @@ function getTaskInstruction(){
 
 function buildNumberPad(){
   numberPad.innerHTML="";
-  const keys=["1","2","3","4","5","6","7","8","9","−","0","⌫"];
+  let digits=["1","2","3","4","5","6","7","8","9","0"];
+  if(numberPadOrder==="reverse"){
+    digits=digits.reverse();
+  }else if(numberPadOrder==="random"){
+    for(let index=digits.length-1;index>0;index--){
+      const swapIndex=Math.floor(Math.random()*(index+1));
+      [digits[index],digits[swapIndex]]=[digits[swapIndex],digits[index]];
+    }
+  }
+  const keys=[...digits,"−","⌫"];
   keys.forEach(key=>{
     const button=document.createElement("button");
     button.type="button";
@@ -3937,8 +4220,8 @@ async function startGame(){
 
   applyArithmeticMode(modeSelect.value);
   applyTrainingPresentationSettings();
-  if(!hasViableSingleDigitPair()){
-    numberRangeMinInput.setCustomValidity("This number range cannot produce a single-digit answer for the selected arithmetic mode.");
+  if(!hasViableNumberPair()){
+    numberRangeMinInput.setCustomValidity("This number range cannot produce an answer that matches the selected answer constraints.");
     activateSettingsTab("difficulty");
     numberRangeMinInput.reportValidity();
     return;
@@ -3971,6 +4254,7 @@ async function startGame(){
   }
 
   numbers=[]; feedback=[]; responseTimes=[];
+  adaptiveAccuracyWindow=[];
   correctStreak=0; wrongStreak=0;
   correctAnswers=0;
   excludeLastQuestionFromCount=false;
@@ -3992,6 +4276,7 @@ async function startGame(){
 
   answer.value="";
   visualStimulus.textContent="";
+  equationStream.innerHTML="";
   sessionHeading.textContent=getTaskInstruction();
   buildNumberPad();
 
@@ -4081,10 +4366,13 @@ const endSessionBtn=document.getElementById("endSessionBtn");
 const newSessionBtn=document.getElementById("newSessionBtn");
 const answer=document.getElementById("answer");
 const appHeader=document.getElementById("appHeader");
+const currentIntervalMetric=document.getElementById("currentIntervalMetric");
 const sessionGoalMetric=document.getElementById("sessionGoalMetric");
 const sessionHeading=document.querySelector(".session-heading h2");
 const visualStimulus=document.getElementById("visualStimulus");
+const feedbackElement=document.getElementById("feedback");
 const numberPad=document.getElementById("numberPad");
+const equationStream=document.getElementById("equationStream");
 const startingIntervalInput=document.getElementById("startingInterval");
 const minimumIntervalInput=document.getElementById("minimumInterval");
 const durationInput=document.getElementById("duration");
@@ -4100,10 +4388,25 @@ const nBackDepthSelect=document.getElementById("nBackDepth");
 const numberRangeMinInput=document.getElementById("numberRangeMin");
 const numberRangeMaxInput=document.getElementById("numberRangeMax");
 const singleDigitToggle=document.getElementById("singleDigitToggle");
+const answerRangeToggle=document.getElementById("answerRangeToggle");
+const answerRangeOptions=document.getElementById("answerRangeOptions");
+const answerRangeMinInput=document.getElementById("answerRangeMin");
+const answerRangeMaxInput=document.getElementById("answerRangeMax");
 const presentationModeSelect=document.getElementById("presentationMode");
 const numberPadToggle=document.getElementById("numberPadToggle");
+const numberPadOptions=document.getElementById("numberPadOptions");
+const numberPadSizeSelect=document.getElementById("numberPadSize");
+const numberPadColumnsSelect=document.getElementById("numberPadColumns");
+const numberPadOrderSelect=document.getElementById("numberPadOrder");
 const hideAnswerToggle=document.getElementById("hideAnswerToggle");
+const minimalInputToggle=document.getElementById("minimalInputToggle");
+const fumbleToggle=document.getElementById("fumbleToggle");
+const fatFingerToggle=document.getElementById("fatFingerToggle");
+const equationStreamToggle=document.getElementById("equationStreamToggle");
 const showSessionTimerToggle=document.getElementById("showSessionTimerToggle");
+const showIntervalMetricToggle=document.getElementById("showIntervalMetricToggle");
+const showFeedbackIndicatorsToggle=document.getElementById("showFeedbackIndicatorsToggle");
+const compactTrainingToggle=document.getElementById("compactTrainingToggle");
 const errorFlashToggle=document.getElementById("errorFlashToggle");
 const correctThresholdInput=document.getElementById("correctThreshold");
 const incorrectThresholdInput=document.getElementById("incorrectThreshold");
@@ -4122,8 +4425,17 @@ const beepVolumeValue=document.getElementById("beepVolumeValue");
 const beepTypeSelect=document.getElementById("beepType");
 const beepTestBtn=document.getElementById("beepTestBtn");
 const beepToggle=document.getElementById("beepToggle");
-const themeToggle=document.getElementById("themeToggle");
+const themeModeSelect=document.getElementById("themeModeSelect");
 const showIntervalTimingToggle=document.getElementById("showIntervalTimingToggle");
+const adaptationModeSelect=document.getElementById("adaptationMode");
+const perTrialAdaptationOptions=document.getElementById("perTrialAdaptationOptions");
+const perTrialCorrectStepInput=document.getElementById("perTrialCorrectStep");
+const perTrialWrongStepInput=document.getElementById("perTrialWrongStep");
+const targetAccuracyOptions=document.getElementById("targetAccuracyOptions");
+const targetAccuracyInput=document.getElementById("targetAccuracy");
+const targetAccuracyWindowInput=document.getElementById("targetAccuracyWindow");
+const targetAccuracyStepCapInput=document.getElementById("targetAccuracyStepCap");
+const streakThresholdSection=document.getElementById("streakThresholdSection");
 const resetSettingsBtn=document.getElementById("resetSettingsBtn");
 const playbackSpeedValue=document.getElementById("playbackSpeedValue");
 const currentInterval=document.getElementById("currentInterval");
@@ -4193,10 +4505,23 @@ const settingsControls=[
   numberRangeMinInput,
   numberRangeMaxInput,
   singleDigitToggle,
+  answerRangeToggle,
+  answerRangeMinInput,
+  answerRangeMaxInput,
   presentationModeSelect,
   numberPadToggle,
+  numberPadSizeSelect,
+  numberPadColumnsSelect,
+  numberPadOrderSelect,
   hideAnswerToggle,
+  minimalInputToggle,
+  fumbleToggle,
+  fatFingerToggle,
+  equationStreamToggle,
   showSessionTimerToggle,
+  showIntervalMetricToggle,
+  showFeedbackIndicatorsToggle,
+  compactTrainingToggle,
   errorFlashToggle,
   correctThresholdInput,
   incorrectThresholdInput,
@@ -4206,7 +4531,13 @@ const settingsControls=[
   beepVolumeSelect,
   beepTypeSelect,
   beepToggle,
-  themeToggle,
+  themeModeSelect,
+  adaptationModeSelect,
+  perTrialCorrectStepInput,
+  perTrialWrongStepInput,
+  targetAccuracyInput,
+  targetAccuracyWindowInput,
+  targetAccuracyStepCapInput,
   showIntervalTimingToggle
 ];
 

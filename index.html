@@ -23,7 +23,6 @@
       <p class="subtitle">Paced auditory arithmetic for sustained working memory.</p>
     </div>
   </div>
-  <span class="app-badge">Local · private · adaptive</span>
 </header>
 
 <div id="sessionView" class="session-view hidden">
@@ -32,7 +31,7 @@
     <h2>Combine each new number with the N-back number.</h2>
   </div>
   <div class="session-metrics">
-    <div class="metric">
+    <div id="currentIntervalMetric" class="metric">
       <span>Current Interval</span>
       <strong><span id="currentInterval">1000</span> ms</strong>
     </div>
@@ -46,6 +45,7 @@
   <div id="feedback"></div>
   <input class="answer-input" type="number" id="answer" placeholder="Enter answer" disabled>
   <div id="numberPad" class="number-pad hidden" aria-label="On-screen number pad"></div>
+  <div id="equationStream" class="equation-stream hidden" aria-label="Recent equations"></div>
   <button id="endSessionBtn" class="secondary-button danger-button" type="button">End Session</button>
 
   <div id="intervalStats"></div>
@@ -261,6 +261,7 @@
       <button class="settings-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="settingsSessionPanel" data-settings-tab="session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span>Session</span></button>
       <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsDifficultyPanel" data-settings-tab="difficulty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m8 10V5m8 14V2"/></svg><span>Difficulty</span></button>
       <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsInputPanel" data-settings-tab="input"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg><span>Audio &amp; input</span></button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsAssistPanel" data-settings-tab="assist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg><span>Assist</span></button>
       <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsAppearancePanel" data-settings-tab="appearance"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg><span>Appearance</span></button>
       <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="settingsAdvancedPanel" data-settings-tab="advanced"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10m4 0h2M4 12h2m4 0h10M4 18h7m4 0h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg><span>Advanced</span></button>
     </nav>
@@ -295,6 +296,16 @@
           </div>
           <label class="toggle-card"><span class="switch"><input type="checkbox" id="singleDigitToggle"><span></span></span><span><strong>Single-digit answers</strong><small>Only generate pairs whose correct result is between 0 and 9.</small></span></label>
         </section>
+        <section class="settings-section">
+          <div class="section-header">Answer constraints</div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="answerRangeToggle"><span></span></span><span><strong>Limit answer range</strong><small>Re-roll stimuli until the computed answer fits your selected window.</small></span></label>
+          <div id="answerRangeOptions" class="dependent-options locked" aria-disabled="true">
+            <div class="field-pair">
+              <label class="compact-field"><span>Lowest answer</span><input type="number" id="answerRangeMin" min="-99" max="999" value="0" disabled></label>
+              <label class="compact-field"><span>Highest answer</span><input type="number" id="answerRangeMax" min="-99" max="999" value="18" disabled></label>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div id="settingsInputPanel" class="settings-panel" role="tabpanel" data-settings-panel="input" hidden>
@@ -309,6 +320,27 @@
           <div class="section-header">Answer input</div>
           <label class="toggle-card"><span class="switch"><input type="checkbox" id="numberPadToggle"><span></span></span><span><strong>On-screen number pad</strong><small>Adds large tap targets without disabling keyboard input.</small></span></label>
           <label class="toggle-card"><span class="switch"><input type="checkbox" id="hideAnswerToggle"><span></span></span><span><strong>Hide typed answer</strong><small>Keeps the input cursor visible while masking entered digits.</small></span></label>
+          <div id="numberPadOptions" class="dependent-options locked" aria-disabled="true">
+            <div class="field-pair">
+              <label class="compact-field"><span>Button size</span><select id="numberPadSize" disabled><option value="0.8">Compact</option><option value="1" selected>Normal</option><option value="1.2">Large</option><option value="1.4">Extra large</option></select></label>
+              <label class="compact-field"><span>Columns</span><select id="numberPadColumns" disabled><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+            </div>
+            <label class="field"><span><strong>Button order</strong><small>Shuffle prevents relying on button position.</small></span><select id="numberPadOrder" disabled><option value="standard">Standard</option><option value="reverse">Reverse</option><option value="random">Shuffle every stimulus</option></select></label>
+          </div>
+        </section>
+      </div>
+
+      <div id="settingsAssistPanel" class="settings-panel" role="tabpanel" data-settings-panel="assist" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">Assist</p><h2>Control input forgiveness and review</h2></div><p>These options change how answers are accepted. They are off by default so standard scoring stays strict.</p></div>
+        <section class="settings-section">
+          <div class="section-header">Input forgiveness</div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="minimalInputToggle"><span></span></span><span><strong>Ones-digit input</strong><small>Typing 3 can answer 13; useful when arithmetic is not the intended bottleneck.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="fumbleToggle"><span></span></span><span><strong>Digit-swap correction</strong><small>Accept a reversed two-digit answer, such as 41 for 14.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="fatFingerToggle"><span></span></span><span><strong>Fat-finger correction</strong><small>Accept up to four entered digits when the exact answer appears inside them.</small></span></label>
+        </section>
+        <section class="settings-section">
+          <div class="section-header">Review while training</div>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="equationStreamToggle"><span></span></span><span><strong>Equation stream</strong><small>Show the latest 30 equations below the input, color-coded by result.</small></span></label>
         </section>
       </div>
 
@@ -316,8 +348,11 @@
         <div class="panel-heading"><div><p class="eyebrow">Appearance</p><h2>Keep the training surface quiet</h2></div><p>Visual feedback can be reduced without changing the task.</p></div>
         <section class="settings-section">
           <div class="section-header">Interface</div>
-          <label class="toggle-card"><span class="switch"><input type="checkbox" id="themeToggle"><span></span></span><span><strong>Dark mode</strong><small>Use a low-luminance interface.</small></span></label>
+          <label class="field"><span><strong>Theme</strong><small>Light, low-luminance, or the bright cyan comfort surface from the reference build.</small></span><select id="themeModeSelect"><option value="light">Light</option><option value="cyan">Cyan</option><option value="dark">Dark</option></select></label>
           <label class="toggle-card"><span class="switch"><input type="checkbox" id="showSessionTimerToggle" checked><span></span></span><span><strong>Show session goal</strong><small>Display remaining time or correct-answer progress during training.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="showIntervalMetricToggle" checked><span></span></span><span><strong>Show current interval</strong><small>Display the live staircase speed during training.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="showFeedbackIndicatorsToggle" checked><span></span></span><span><strong>Show streak indicators</strong><small>Display the compact correct or incorrect staircase dots.</small></span></label>
+          <label class="toggle-card"><span class="switch"><input type="checkbox" id="compactTrainingToggle"><span></span></span><span><strong>Compact training layout</strong><small>Reduce secondary spacing so the number and input stay visually dominant.</small></span></label>
           <label class="toggle-card"><span class="switch"><input type="checkbox" id="errorFlashToggle"><span></span></span><span><strong>Error flash</strong><small>Briefly tint the task surface after an incorrect answer.</small></span></label>
         </section>
       </div>
@@ -328,12 +363,26 @@
         <div id="advancedSettingsPanel" class="advanced-settings hidden">
           <section class="settings-section">
             <div class="section-header">Adaptive pace</div>
+            <label class="field"><span><strong>Adaptation strategy</strong><small>Choose streak-based, per-answer, or rolling target-accuracy control.</small></span><select id="adaptationMode"><option value="streak">Streak staircase</option><option value="perTrial">Adjust every answer</option><option value="target">Target recent accuracy</option></select></label>
             <label class="field"><span><strong>Minimum interval</strong><small>Hard lower bound for the staircase.</small></span><div class="input-with-unit"><input type="number" id="minimumInterval" value="700" min="100" max="1500" step="100"><span>ms</span></div></label>
             <label class="field"><span><strong>Interval step</strong><small id="intervalIncrementValue">100 ms</small></span><input type="range" id="intervalIncrement" min="10" max="100" step="10" value="100"></label>
+            <div id="perTrialAdaptationOptions" class="dependent-options locked" aria-disabled="true">
+              <div class="field-pair">
+                <label class="compact-field"><span>Correct: faster by</span><div class="input-with-unit"><input type="number" id="perTrialCorrectStep" min="1" max="200" value="20" disabled><span>ms</span></div></label>
+                <label class="compact-field"><span>Wrong: slower by</span><div class="input-with-unit"><input type="number" id="perTrialWrongStep" min="1" max="200" value="20" disabled><span>ms</span></div></label>
+              </div>
+            </div>
+            <div id="targetAccuracyOptions" class="dependent-options locked" aria-disabled="true">
+              <div class="field-pair">
+                <label class="compact-field"><span>Target accuracy</span><div class="input-with-unit"><input type="number" id="targetAccuracy" min="50" max="99" value="85" disabled><span>%</span></div></label>
+                <label class="compact-field"><span>Rolling window</span><div class="input-with-unit"><input type="number" id="targetAccuracyWindow" min="5" max="50" value="20" disabled><span>trials</span></div></label>
+              </div>
+              <label class="field"><span><strong>Maximum target-mode step</strong><small>Caps each proportional pace correction.</small></span><div class="input-with-unit"><input type="number" id="targetAccuracyStepCap" min="5" max="200" value="40" disabled><span>ms</span></div></label>
+            </div>
           </section>
         </div>
         <div id="advancedSections" class="advanced-sections hidden">
-          <section class="settings-section">
+          <section id="streakThresholdSection" class="settings-section">
             <div class="section-header"><span>Staircase thresholds</span><span class="threshold-help"><button id="thresholdInfoBtn" class="icon-button info-button" type="button" aria-expanded="false" aria-label="Threshold help">i</button><span class="tooltip-box" role="tooltip">The interval gets shorter after the correct streak and longer after the incorrect streak.</span></span></div>
             <label class="field"><span><strong>Correct streak</strong><small id="correctThresholdValue">4 answers</small></span><input type="range" id="correctThreshold" min="1" max="10" step="1" value="4"></label>
             <label class="field"><span><strong>Incorrect streak</strong><small id="incorrectThresholdValue">4 answers</small></span><input type="range" id="incorrectThreshold" min="1" max="10" step="1" value="4"></label>
