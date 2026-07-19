@@ -2688,3 +2688,198 @@ input {
     border-width: 4px;
   }
 }
+
+/* Quiet UI pass ----------------------------------------------------------
+   Use the same compact hierarchy as ICT: one surface per group, no frame
+   inside frame, and labels that do not repeat the control underneath them. */
+.app-header,
+.task-intro,
+.settings-shell,
+.settings-section,
+.session-view,
+.results-view,
+.history-view,
+.chart-card,
+.history-stat,
+.history-item,
+.training-card {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-header .subtitle,
+.task-intro .eyebrow,
+.task-intro > div > p:last-child,
+.panel-heading .eyebrow,
+.panel-heading > p,
+.field small:not([id]),
+.toggle-card small,
+.history-chart-mode-note,
+.chart-caption,
+.history-reset-note {
+  display: none !important;
+}
+
+.task-intro {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.55fr);
+  gap: 14px;
+  padding: 18px;
+  background: var(--surface-soft);
+}
+
+.task-intro h2 {
+  font-size: clamp(18px, 2vw, 23px);
+}
+
+.example-card {
+  min-height: 104px;
+  padding: 14px 16px;
+  border: 0 !important;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.settings-tabs {
+  gap: 5px;
+  padding: 8px;
+  border: 0 !important;
+}
+
+.settings-tab,
+.settings-tab:hover:not(:disabled),
+.settings-tab.is-active {
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.settings-tab.is-active {
+  background: var(--accent-soft);
+}
+
+.settings-panel {
+  gap: 10px;
+  padding: 18px;
+}
+
+.panel-heading {
+  display: block;
+  margin: 0 0 2px;
+}
+
+.panel-heading h2 {
+  font-size: 18px;
+}
+
+.settings-section {
+  background: var(--surface-soft);
+}
+
+.section-header {
+  padding: 11px 13px 7px;
+  border: 0 !important;
+  background: transparent;
+  font-size: 12px;
+}
+
+.field,
+.toggle-card,
+.field-pair,
+.dependent-options {
+  border: 0 !important;
+}
+
+.field,
+.toggle-card {
+  min-height: 62px;
+  padding: 11px 13px;
+}
+
+.field {
+  align-items: center;
+}
+
+.field-pair {
+  padding: 10px 12px;
+}
+
+.compact-field {
+  border: 0 !important;
+  background: var(--surface);
+}
+
+input:not([type="checkbox"]):not([type="range"]),
+select,
+.input-with-unit,
+.answer-input {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: var(--surface) !important;
+}
+
+button,
+.secondary-button,
+.primary-button,
+.danger-button,
+.history-status,
+.history-trend-toggle,
+.history-pagination-button {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+.answer-input:focus {
+  outline: 0 !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent) !important;
+}
+
+.history-summary,
+.history-list,
+.analytics-grid {
+  gap: 10px;
+}
+
+.history-stat,
+.history-item,
+.chart-card {
+  background: var(--surface-soft);
+}
+
+.chart-details {
+  border: 0 !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.history-status {
+  background: var(--surface);
+}
+
+.training-card-header {
+  border: 0 !important;
+}
+
+.training-metrics .metric,
+.training-timer {
+  background: var(--surface-soft);
+}
+
+.training-card .answer-input {
+  border: 0 !important;
+}
+
+@media (max-width: 700px) {
+  .task-intro {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .settings-panel { padding: 14px; }
+
+  .field {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
