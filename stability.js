@@ -4,7 +4,7 @@
   const CHECKPOINT_KEY = "cctActiveSessionCheckpointV2";
   const CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
   const AUDIO_PROBE_TIMEOUT_MS = 5000;
-  const AUDIO_TAIL_PADDING_MS = 120;
+  const AUDIO_DURATION_WARNING_MARGIN_MS = 20;
 
   let isPaused = false;
   let pauseStartedWallTime = 0;
@@ -53,8 +53,16 @@
       color: #287a4d;
     }
 
+    .voice-stability-status.warning {
+      color: #9a6517;
+    }
+
     .theme-dark .voice-stability-status.success {
       color: #6ed49b;
+    }
+
+    .theme-dark .voice-stability-status.warning {
+      color: #e6b765;
     }
 
     @media (max-width: 520px) {
@@ -103,6 +111,7 @@
     voiceStatus.textContent = message;
     voiceStatus.classList.toggle("error", type === "error");
     voiceStatus.classList.toggle("success", type === "success");
+    voiceStatus.classList.toggle("warning", type === "warning");
   }
 
   async function requestWakeLock() {
@@ -197,28 +206,15 @@
     return report;
   }
 
-  function getSafeMinimumInterval(report) {
-    if (!report || !report.maxDurationMs) return 100;
+  function getLongestClipDuration(report) {
+    if (!report || !report.maxDurationMs) return 0;
     const speed = Math.max(0.5, parseFloat(playbackSpeedSelect.value) || 1);
-    const safeValue = (report.maxDurationMs / speed) + AUDIO_TAIL_PADDING_MS;
-    return Math.max(100, Math.ceil(safeValue / 10) * 10);
+    return Math.max(0, Math.ceil((report.maxDurationMs / speed) / 10) * 10);
   }
 
-  function applySafeMinimumInterval(report) {
-    const safeMinimum = getSafeMinimumInterval(report);
-    const cappedMinimum = Math.min(1500, safeMinimum);
-    minimumIntervalInput.min = String(cappedMinimum);
-
-    if ((parseInt(minimumIntervalInput.value, 10) || 0) < cappedMinimum) {
-      minimumIntervalInput.value = String(cappedMinimum);
-    }
-
-    if ((parseInt(startingIntervalInput.value, 10) || 0) < cappedMinimum) {
-      startingIntervalInput.value = String(cappedMinimum);
-    }
-
-    saveSettings();
-    return safeMinimum;
+  function restoreNativeIntervalBounds() {
+    startingIntervalInput.min = "200";
+    minimumIntervalInput.min = "100";
   }
 
   async function refreshVoiceSafetyStatus(force = false) {
@@ -231,13 +227,22 @@
       return report;
     }
 
-    const safeMinimum = applySafeMinimumInterval(report);
-    if (safeMinimum > 1500) {
-      setVoiceStatus("This voice is too long for the available interval range.", "error");
-      return { ...report, ok: false, unsafe: true };
-    }
+    restoreNativeIntervalBounds();
+    const longestClipMs = getLongestClipDuration(report);
+    const configuredMinimum = Math.max(100, parseInt(minimumIntervalInput.value, 10) || 100);
+    const warningThreshold = longestClipMs + AUDIO_DURATION_WARNING_MARGIN_MS;
 
-    setVoiceStatus(`Voice ready. Safe minimum interval: ${safeMinimum} ms.`, "success");
+    if (longestClipMs && configuredMinimum < warningThreshold) {
+      setVoiceStatus(
+        `Voice ready. Longest clip: ${longestClipMs} ms. Very short intervals may cut a word short; timing still remains digit-onset to digit-onset.`,
+        "warning"
+      );
+    } else {
+      setVoiceStatus(
+        `Voice ready. Longest clip: ${longestClipMs || "unknown"} ms. Interval timing is digit-onset to digit-onset.`,
+        "success"
+      );
+    }
     return report;
   }
 
@@ -504,21 +509,35 @@
     currentIntervalStart = showIntervalTiming ? nowClock : 0;
     lastStimulusAt = nowClock;
 
-    if (replayLastStimulus && numbers.length) {
-      const lastNumber = numbers[numbers.length - 1];
-      renderVisualStimulus(lastNumber);
-      playStimulusAudio(lastNumber);
+    const beginSchedulerAt = onsetAt => {
+      if (!gameRunning || isPaused || sessionState !== "active") return;
+      const resolvedOnset = Number.isFinite(Number(onsetAt)) ? Number(onsetAt) : getClockTime();
+      lastStimulusAt = resolvedOnset;
 
       if (activeQuestionState && !activeQuestionState.resolved) {
-        activeQuestionState.startedAt = nowClock;
+        activeQuestionState.startedAt = resolvedOnset;
         activeQuestionState.responseInterval = interval;
-        responseStartedAt = nowClock;
+        responseStartedAt = resolvedOnset;
         responseInterval = interval;
         awaitingAnswer = true;
       }
+
+      scheduleNextStimulusFromLastStimulus();
+      queueCheckpointSave();
+    };
+
+    if (replayLastStimulus && numbers.length) {
+      const lastNumber = numbers[numbers.length - 1];
+      const onsetPromise = playStimulusAudio(lastNumber);
+      Promise.resolve(onsetPromise).then(onsetAt => {
+        if (!gameRunning || isPaused) return;
+        renderVisualStimulus(lastNumber);
+        beginSchedulerAt(onsetAt);
+      });
+    } else {
+      scheduleNextStimulus(interval);
     }
 
-    scheduleNextStimulus(interval);
     if (endCondition === "timer") updateTimer();
     tickIntervalTime();
     restoreAnswerFocus();
@@ -595,6 +614,9 @@
 
   runStimulus = function stableRunStimulus(...args) {
     const result = originalRunStimulus(...args);
+    if (result && typeof result.finally === "function") {
+      return result.finally(queueCheckpointSave);
+    }
     queueCheckpointSave();
     return result;
   };
