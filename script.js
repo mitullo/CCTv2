@@ -140,6 +140,11 @@ let activeStimulusAudios=new Set();
 let voiceLibrary={};
 let voiceTestInProgress=false;
 let beepAudioContext=null;
+let inputQuarantineUntil=0;
+const INPUT_ROLLOVER_GUARD_MS=140;
+const AUDIO_START_FALLBACK_MS=2000;
+const VOICE_PRELOAD_TIMEOUT_MS=5000;
+const VOICE_ASSET_VERSION="20260806-onset-sync-1";
 
 function clampInteger(value,fallback,min,max){
   const parsed=parseInt(value,10);
@@ -3502,7 +3507,9 @@ function getVoiceConfig(voiceKey){
 
 function getVoiceClipUrl(voiceKey,num){
   const voice=getVoiceConfig(voiceKey);
-  return `${voice.basePath}/${num}.mp3`;
+  const url=`${voice.basePath}/${num}.mp3`;
+  if(window.location && window.location.protocol==="file:") return url;
+  return `${url}?v=${encodeURIComponent(VOICE_ASSET_VERSION)}`;
 }
 
 function retainOnlyVoiceCache(voiceKey){
@@ -3537,7 +3544,7 @@ function preloadVoice(voiceKey){
     const audio=loadAudioClip(getVoiceClipUrl(voiceKey,num));
     entry.clips[num]=audio;
     let settled=false;
-    const timeoutId=setTimeout(finish,1500);
+    const timeoutId=setTimeout(finish,VOICE_PRELOAD_TIMEOUT_MS);
 
     function finish(){
       if(settled) return;
@@ -3550,7 +3557,7 @@ function preloadVoice(voiceKey){
     }
 
     if(audio.readyState>=3){
-      resolve(audio);
+      finish();
       return;
     }
 
@@ -3624,41 +3631,80 @@ async function testSelectedVoice(){
   }
 }
 
-function stopStimulusAudioPlayback(){
+function stopStimulusAudioPlayback(exceptAudio=null){
   activeStimulusAudios.forEach(audio=>{
+    if(audio===exceptAudio) return;
     try{
       audio.pause();
       audio.currentTime=0;
     }catch(e){}
+    activeStimulusAudios.delete(audio);
   });
-  activeStimulusAudios.clear();
 }
 
 function playStimulusAudio(num){
-  if(presentationMode==="visual") return;
+  if(presentationMode==="visual") return Promise.resolve(getClockTime());
   const voice=resolveVoiceKey(selectedVoice);
   const entry=voiceAudioCache[voice] || voiceAudioCache[Object.keys(voiceAudioCache)[0]];
   const template=entry&&entry.clips&&entry.clips[num];
-  if(!template) return;
+  if(!template) return Promise.resolve(getClockTime());
 
-  stopStimulusAudioPlayback();
-
-  const audio=template.cloneNode(true);
+  // Reuse the already-loaded element instead of cloning it. On Android, a clone
+  // may need to decode again and can introduce an avoidable start delay.
+  const audio=template;
+  audio.preload="auto";
   audio.playbackRate=playbackSpeed;
-  audio.currentTime=0;
+  try{
+    audio.pause();
+    audio.currentTime=0;
+  }catch(e){}
   activeStimulusAudios.add(audio);
 
-  const cleanup=()=>{
-    activeStimulusAudios.delete(audio);
-  };
+  return new Promise(resolve=>{
+    let onsetResolved=false;
+    let fallbackTimer=0;
 
-  audio.addEventListener("ended",cleanup,{once:true});
-  audio.addEventListener("error",cleanup,{once:true});
+    const cleanup=()=>{
+      activeStimulusAudios.delete(audio);
+    };
 
-  const playPromise=audio.play();
-  if(playPromise&&typeof playPromise.catch==="function"){
-    playPromise.catch(cleanup);
-  }
+    const resolveOnset=(startedAt=getClockTime())=>{
+      if(onsetResolved) return;
+      onsetResolved=true;
+      clearTimeout(fallbackTimer);
+      resolve(startedAt);
+    };
+
+    const handlePlaying=()=>{
+      // Keep the previous clip alive until the next clip has genuinely begun.
+      // This avoids creating an artificial silent gap when Android starts audio late.
+      stopStimulusAudioPlayback(audio);
+      resolveOnset(getClockTime());
+    };
+
+    const handleError=()=>{
+      cleanup();
+      resolveOnset(getClockTime());
+    };
+
+    audio.addEventListener("playing",handlePlaying,{once:true});
+    audio.addEventListener("ended",cleanup,{once:true});
+    audio.addEventListener("error",handleError,{once:true});
+
+    fallbackTimer=setTimeout(()=>{
+      // Never freeze a session if a browser fails to emit `playing`.
+      resolveOnset(getClockTime());
+    },AUDIO_START_FALLBACK_MS);
+
+    try{
+      const playPromise=audio.play();
+      if(playPromise&&typeof playPromise.then==="function"){
+        playPromise.then(handlePlaying).catch(handleError);
+      }
+    }catch(e){
+      handleError();
+    }
+  });
 }
 
 function updateLatestTraceResponseTime(responseTime,traceIndex=sessionIntervalTrace.length-1){
@@ -3939,6 +3985,15 @@ function clearPendingAnswer(){
   answer.value="";
 }
 
+function armInputRolloverGuard(stimulusAt=getClockTime()){
+  inputQuarantineUntil=Math.max(inputQuarantineUntil,stimulusAt+INPUT_ROLLOVER_GUARD_MS);
+  answer.value="";
+}
+
+function isInputRolloverGuardActive(){
+  return getClockTime()<inputQuarantineUntil;
+}
+
 function resetQuestionStates(){
   activeQuestionState=null;
 }
@@ -4124,44 +4179,69 @@ function startStimulusScheduler(){
   scheduleNextStimulusFromLastStimulus();
 }
 
-function runStimulus(){
+async function runStimulus(){
   if(!gameRunning)return;
 
   isStimulusTick=true;
-  if(numberPadEnabled && numberPadOrder==="random") buildNumberPad();
+  const runSerial=stimulusScheduleSerial;
 
-  const expiredQuestionState=activeQuestionState;
-  if(expiredQuestionState && !expiredQuestionState.resolved){
-    finalizeQuestionState(expiredQuestionState,answer.value,getClockTime());
-  }
+  try{
+    if(numberPadEnabled && numberPadOrder==="random") buildNumberPad();
 
-  const num=getRandomNumber();
-  const now=getClockTime();
-  lastStimulusAt=now;
-  clearPendingAnswer();
-  numbers.push(num);
-  sessionIntervalTrace.push({
-    questionNumber:numbers.length,
-    interval,
-    timestamp:now,
-    responseTime:null
-  });
-  renderVisualStimulus(num);
-  playStimulusAudio(num);
+    const num=getRandomNumber();
+    let stimulusAt=getClockTime();
 
-  if(numbers.length>nBackDepth){
-    awaitingAnswer=true;
-    responseStartedAt=now;
-    responseInterval=interval;
-    activeQuestionState=createQuestionState(now);
-  }else{
+    if(presentationMode!=="visual"){
+      // The displayed interval is true digit-onset to digit-onset timing.
+      // A late audio start therefore does not steal response time from the user.
+      stimulusAt=await playStimulusAudio(num);
+    }
+
+    if(!gameRunning || runSerial!==stimulusScheduleSerial) return;
+
+    const expiredQuestionState=activeQuestionState;
+    const expiredInput=answer.value.trim();
+    let expiredIncorrectPartial=false;
+
+    if(expiredQuestionState && !expiredQuestionState.resolved){
+      const wasCorrect=finalizeQuestionState(expiredQuestionState,expiredInput,stimulusAt);
+      expiredIncorrectPartial=expiredInput!=="" && !wasCorrect;
+    }
+
+    // A second digit that was already being typed at the boundary must not leak
+    // into the next trial. The short guard is armed only after a partial timeout.
+    if(expiredIncorrectPartial){
+      armInputRolloverGuard(stimulusAt);
+    }else{
+      answer.value="";
+    }
+
+    lastStimulusAt=stimulusAt;
     clearPendingAnswer();
-    activeQuestionState=null;
-  }
+    numbers.push(num);
+    sessionIntervalTrace.push({
+      questionNumber:numbers.length,
+      interval,
+      timestamp:stimulusAt,
+      responseTime:null
+    });
+    renderVisualStimulus(num);
 
-  isStimulusTick=false;
-  if(gameRunning){
-    scheduleNextStimulusFromLastStimulus();
+    if(numbers.length>nBackDepth){
+      awaitingAnswer=true;
+      responseStartedAt=stimulusAt;
+      responseInterval=interval;
+      activeQuestionState=createQuestionState(stimulusAt);
+    }else{
+      clearPendingAnswer();
+      activeQuestionState=null;
+    }
+
+    if(gameRunning){
+      scheduleNextStimulusFromLastStimulus();
+    }
+  }finally{
+    isStimulusTick=false;
   }
 }
 
@@ -4209,6 +4289,11 @@ function buildNumberPad(){
     button.setAttribute("aria-label",key==="⌫" ? "Backspace" : key==="−" ? "Negative sign" : key);
     button.addEventListener("click",()=>{
       if(sessionState!=="active" || answer.disabled) return;
+      if(isInputRolloverGuardActive() && key!=="⌫"){
+        answer.value="";
+        restoreAnswerFocus();
+        return;
+      }
       if(key==="⌫"){
         answer.value=answer.value.slice(0,-1);
       }else if(key==="−"){
@@ -4374,6 +4459,10 @@ function stopGame(reason="manual"){
 
 function checkInputLive(event){
   if(sessionState!=="active") return;
+  if(isInputRolloverGuardActive()){
+    answer.value="";
+    return;
+  }
   if(!awaitingAnswer || numbers.length<=nBackDepth || !activeQuestionState || activeQuestionState.resolved) return;
 
   const submittedValue=answer.value.trim();
@@ -4708,6 +4797,13 @@ showAdvancedSettingsToggle.addEventListener("change",()=>{
   if(!showAdvancedSettingsToggle.checked){
     thresholdHelp.classList.remove("tooltip-open");
     thresholdInfoBtn.setAttribute("aria-expanded","false");
+  }
+});
+answer.addEventListener("beforeinput",event=>{
+  if(sessionState!=="active" || !isInputRolloverGuardActive()) return;
+  if(String(event.inputType||"").startsWith("insert")){
+    event.preventDefault();
+    answer.value="";
   }
 });
 answer.addEventListener("input",checkInputLive);
