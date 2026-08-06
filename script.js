@@ -144,7 +144,7 @@ let inputQuarantineUntil=0;
 const INPUT_ROLLOVER_GUARD_MS=140;
 const AUDIO_START_FALLBACK_MS=2000;
 const VOICE_PRELOAD_TIMEOUT_MS=5000;
-const VOICE_ASSET_VERSION="20260806-onset-sync-1";
+const VOICE_ASSET_VERSION="20260806-russian-female-soft-tail-2";
 
 function clampInteger(value,fallback,min,max){
   const parsed=parseInt(value,10);
