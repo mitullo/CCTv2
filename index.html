@@ -60,6 +60,14 @@
     </div>
 
     <div id="visualStimulus" class="visual-stimulus hidden" aria-live="polite" aria-atomic="true"></div>
+    <div id="ictResponsePanel" class="ict-response-panel hidden" aria-label="CCT plus ICT response controls">
+      <div class="ict-response-rule">Add the current spoken digit to the one immediately before it, then judge the flashed number.</div>
+      <div class="ict-response-actions">
+        <button id="ictExactBtn" class="ict-response-button" type="button" disabled><kbd>←</kbd><span><strong>Exact sum</strong><small>Press Left</small></span></button>
+        <div class="ict-withhold-card"><strong>Anything else</strong><small>Press nothing</small></div>
+        <button id="ictOffByOneBtn" class="ict-response-button" type="button" disabled><span><strong>Sum ±1</strong><small>Press Right</small></span><kbd>→</kbd></button>
+      </div>
+    </div>
     <input class="answer-input" type="number" id="answer" placeholder="Type your answer here" autocomplete="off" enterkeyhint="done" disabled>
     <div id="numberPad" class="number-pad hidden" aria-label="On-screen number pad"></div>
     <div id="equationStream" class="equation-stream hidden" aria-label="Recent equations"></div>
@@ -156,9 +164,10 @@
           <option value="multiplication">Multiplication</option>
           <option value="subtraction">Subtraction (signed)</option>
           <option value="difference">Difference (absolute)</option>
+          <option value="cctIct">CCT + ICT</option>
         </select>
       </label>
-      <div id="historyChartModeNote" class="history-chart-mode-note">Charts show one arithmetic mode at a time.</div>
+      <div id="historyChartModeNote" class="history-chart-mode-note">Charts show one task mode at a time.</div>
     </div>
     <div class="analytics-grid">
       <section class="chart-card">
@@ -220,13 +229,14 @@
               </select>
             </label>
             <label class="field history-filter-field">
-              <span>Arithmetic Mode</span>
+              <span>Mode</span>
               <select id="historyModeFilter">
                 <option value="all">All</option>
                 <option value="addition">Addition</option>
                 <option value="multiplication">Multiplication</option>
                 <option value="subtraction">Subtraction (signed)</option>
                 <option value="difference">Difference (absolute)</option>
+                <option value="cctIct">CCT + ICT</option>
               </select>
             </label>
             <label class="field history-filter-field">
@@ -304,9 +314,21 @@
       <div id="settingsDifficultyPanel" class="settings-panel" role="tabpanel" data-settings-panel="difficulty" hidden>
         <div class="panel-heading"><div><p class="eyebrow">Difficulty</p><h2>Control what must be held and computed</h2></div><p>These controls change the task itself, not merely its speed.</p></div>
         <section class="settings-section">
-          <div class="section-header">Working-memory load</div>
-          <label class="field mode-field" id="modeField"><span><strong>Arithmetic</strong><small>Operation applied to the current and N-back numbers.</small></span><select id="modeSelect"><option value="addition">Addition (A + B)</option><option value="multiplication">Multiplication (A × B)</option><option value="subtraction">Subtraction (A − B)</option><option value="difference">Absolute difference |A − B|</option></select></label>
-          <label class="field"><span><strong>N-back depth</strong><small>1-back is standard PASAT. Higher values increase memory load.</small></span><select id="nBackDepth"><option value="1">1-back</option><option value="2">2-back</option><option value="3">3-back</option><option value="4">4-back</option><option value="5">5-back</option></select></label>
+          <div class="section-header">Task</div>
+          <label class="field mode-field" id="modeField"><span><strong>Mode</strong><small>Classic PASAT arithmetic or the combined CCT + ICT inhibition task.</small></span><select id="modeSelect"><option value="addition">Addition (A + B)</option><option value="multiplication">Multiplication (A × B)</option><option value="subtraction">Subtraction (A − B)</option><option value="difference">Absolute difference |A − B|</option><option value="cctIct">CCT + ICT</option></select></label>
+          <div id="ictModeInfo" class="ict-mode-info hidden">
+            <strong>CCT + ICT rules</strong>
+            <p>Digits 1–9 are always spoken one at a time. Add each new digit to the digit immediately before it — never to a running total. N-back, number-pool, answer-constraint, and typed-answer settings are ignored for this mode.</p>
+            <div class="ict-rule-grid"><span><kbd>←</kbd> Exact sum</span><span><kbd>→</kbd> Sum ±1</span><span><kbd>—</kbd> Anything else: no response</span></div>
+          </div>
+          <label class="field"><span><strong>N-back depth</strong><small>1-back is standard PASAT. Higher values increase memory load. CCT + ICT always uses the immediately previous digit.</small></span><select id="nBackDepth"><option value="1">1-back</option><option value="2">2-back</option><option value="3">3-back</option><option value="4">4-back</option><option value="5">5-back</option></select></label>
+        </section>
+        <section id="ictProbeMixSection" class="settings-section hidden">
+          <div class="section-header">CCT + ICT probe mix</div>
+          <label class="field"><span><strong>Exact sum</strong><small>Relative chance that the flashed number is the true adjacent-pair sum.</small></span><div class="input-with-unit"><input type="number" id="ictExactProbability" min="0" max="100" value="34"><span>%</span></div></label>
+          <label class="field"><span><strong>Sum ±1</strong><small>Relative chance that the flashed number is exactly one above or below the sum.</small></span><div class="input-with-unit"><input type="number" id="ictOffByOneProbability" min="0" max="100" value="33"><span>%</span></div></label>
+          <label class="field"><span><strong>Anything else</strong><small>Relative chance of a probe at least two away from the sum. Press nothing on these trials.</small></span><div class="input-with-unit"><input type="number" id="ictOtherProbability" min="0" max="100" value="33"><span>%</span></div></label>
+          <div class="ict-weight-note">These values are treated as relative weights, so they do not have to add up to 100.</div>
         </section>
         <section class="settings-section">
           <div class="section-header">Number pool</div>

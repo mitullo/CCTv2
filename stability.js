@@ -360,6 +360,9 @@
           referenceValue: activeQuestionState.referenceValue,
           currentValue: activeQuestionState.currentValue,
           operation: activeQuestionState.operation,
+          probeValue: activeQuestionState.probeValue ?? null,
+          ictProbeType: activeQuestionState.ictProbeType ?? null,
+          expectedResponse: activeQuestionState.expectedResponse ?? null,
           responseInterval: activeQuestionState.responseInterval,
           traceIndex: activeQuestionState.traceIndex,
           resolved: activeQuestionState.resolved,
@@ -454,6 +457,9 @@
         referenceValue: savedQuestion.referenceValue ?? null,
         currentValue: savedQuestion.currentValue ?? null,
         operation: ARITHMETIC_MODES.has(savedQuestion.operation) ? savedQuestion.operation : arithmeticMode,
+        probeValue: savedQuestion.probeValue ?? null,
+        ictProbeType: savedQuestion.ictProbeType ?? null,
+        expectedResponse: savedQuestion.expectedResponse ?? null,
         traceIndex: Math.max(0, Number(savedQuestion.traceIndex) || 0),
         resolved: false
       };
@@ -465,8 +471,11 @@
       responseInterval = 0;
     }
 
-    answer.value = String(saved.answerValue || "");
-    if (numbers.length) {
+    answer.value = isCctIctMode() ? "" : String(saved.answerValue || "");
+    if (isCctIctMode()) {
+      if (activeQuestionState) renderIctProbe(activeQuestionState, { hold: true });
+      else clearIctProbe();
+    } else if (numbers.length) {
       renderVisualStimulus(numbers[numbers.length - 1]);
     }
     gameRunning = false;
@@ -477,6 +486,7 @@
 
     setSessionState("active");
     answer.disabled = true;
+    updateModeSpecificUI();
     currentInterval.textContent = String(interval);
     updateSessionLimitUI();
     if (endCondition === "timer") {
@@ -503,8 +513,9 @@
     pauseStartedWallTime = 0;
     isPaused = false;
     gameRunning = true;
-    answer.disabled = false;
+    answer.disabled = isCctIctMode();
     pauseButton.disabled = false;
+    updateModeSpecificUI();
     setPauseButtonLabel("Pause");
     currentIntervalStart = showIntervalTiming ? nowClock : 0;
     lastStimulusAt = nowClock;
@@ -521,6 +532,7 @@
         responseInterval = interval;
         awaitingAnswer = true;
       }
+      updateIctResponseControls();
 
       scheduleNextStimulusFromLastStimulus();
       queueCheckpointSave();
@@ -528,10 +540,20 @@
 
     if (replayLastStimulus && numbers.length) {
       const lastNumber = numbers[numbers.length - 1];
+      if (isCctIctMode() && activeQuestionState) {
+        awaitingAnswer = false;
+        clearIctProbe();
+        updateIctResponseControls();
+      }
       const onsetPromise = playStimulusAudio(lastNumber);
       Promise.resolve(onsetPromise).then(onsetAt => {
         if (!gameRunning || isPaused) return;
-        renderVisualStimulus(lastNumber);
+        if (isCctIctMode()) {
+          if (activeQuestionState) renderIctProbe(activeQuestionState);
+          else clearIctProbe();
+        } else {
+          renderVisualStimulus(lastNumber);
+        }
         beginSchedulerAt(onsetAt);
       });
     } else {
@@ -559,6 +581,8 @@
     clearTimeout(timeoutId);
     stopStimulusAudioPlayback();
     answer.disabled = true;
+    clearTimeout(ictProbeHideTimer);
+    updateIctResponseControls();
     setPauseButtonLabel("Resume");
     void releaseWakeLock();
     saveCheckpoint();
@@ -641,12 +665,13 @@
 
     const label = startBtn.querySelector("span");
     const originalText = label ? label.textContent : startBtn.textContent;
+    const requiresAudio = modeSelect.value === ICT_MODE || presentationMode !== "visual";
     startBtn.disabled = true;
-    if (label) label.textContent = presentationMode === "visual" ? "Starting…" : "Checking voice…";
-    else startBtn.textContent = presentationMode === "visual" ? "Starting…" : "Checking voice…";
+    if (label) label.textContent = requiresAudio ? "Checking voice…" : "Starting…";
+    else startBtn.textContent = requiresAudio ? "Checking voice…" : "Starting…";
 
     try {
-      if (presentationMode !== "visual") {
+      if (requiresAudio) {
         const report = await refreshVoiceSafetyStatus();
         if (!report.ok) return;
       }

@@ -2883,3 +2883,185 @@ select:focus-visible,
     gap: 8px;
   }
 }
+
+/* CCT + ICT mode */
+.ict-mode-info {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.ict-mode-info strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ict-mode-info p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ict-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ict-rule-grid span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ict-rule-grid kbd,
+.ict-response-button kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 28px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ict-weight-note {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.training-card .visual-stimulus.ict-probe-stimulus {
+  min-height: 132px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: clamp(60px, 10vw, 92px);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.ict-response-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 18px;
+}
+
+.ict-response-rule {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.ict-response-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 0.75fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ict-response-button,
+.ict-withhold-card {
+  min-height: 74px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.ict-response-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ict-response-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
+}
+
+.ict-response-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ict-response-button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.ict-response-button > span,
+.ict-withhold-card {
+  display: grid;
+  gap: 3px;
+}
+
+.ict-response-button strong,
+.ict-withhold-card strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ict-response-button small,
+.ict-withhold-card small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.ict-withhold-card {
+  place-content: center;
+  padding: 12px;
+  text-align: center;
+  background: var(--surface-soft);
+}
+
+@media (max-width: 680px) {
+  .ict-rule-grid,
+  .ict-response-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .ict-response-button,
+  .ict-withhold-card {
+    min-height: 62px;
+  }
+
+  .ict-response-button:first-child {
+    order: 1;
+  }
+
+  .ict-withhold-card {
+    order: 2;
+  }
+
+  .ict-response-button:last-child {
+    order: 3;
+  }
+}

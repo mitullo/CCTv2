@@ -10,6 +10,7 @@ let stimulusScheduleSerial=0;
 let lastStimulusAt=0;
 let endCondition="timer", targetCorrect=50, correctAnswers=0;
 let arithmeticMode="addition";
+let ictProbeHideTimer=0;
 let sessionStartedAt=0, sessionEndedAt=0;
 let responseStartedAt=0, responseInterval=0;
 let excludeLastQuestionFromCount=false;
@@ -39,7 +40,11 @@ const EMPTY_HISTORY_STATS={
 const SETTINGS_KEY="cctSettings";
 const SETTINGS_SESSION_KEY="cctSettingsSessionBackup";
 const SETTINGS_WINDOW_NAME_PREFIX="CCT_SETTINGS:";
-const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference"]);
+const ICT_MODE="cctIct";
+const ICT_RESPONSE_LEFT="left";
+const ICT_RESPONSE_RIGHT="right";
+const ICT_RESPONSE_NONE="none";
+const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference",ICT_MODE]);
 const DEFAULT_BEEP_GAIN=0.12;
 const DEFAULT_BEEP_VOLUME_PERCENT=50;
 const MAX_BEEP_VOLUME_PERCENT=100;
@@ -59,6 +64,9 @@ const defaultSettings={
   endCondition:"timer",
   targetCorrect:"500",
   mode:"addition",
+  ictExactProbability:"34",
+  ictOffByOneProbability:"33",
+  ictOtherProbability:"33",
   voice:"nathan",
   playbackSpeed:"1",
   beepVolume:String(DEFAULT_BEEP_VOLUME_PERCENT),
@@ -134,6 +142,9 @@ let perTrialWrongStep=20;
 let targetAccuracy=85;
 let targetAccuracyWindow=20;
 let targetAccuracyStepCap=40;
+let ictExactProbability=34;
+let ictOffByOneProbability=33;
+let ictOtherProbability=33;
 let adaptiveAccuracyWindow=[];
 let voiceAudioCache={};
 let activeStimulusAudios=new Set();
@@ -205,6 +216,9 @@ function normalizeSavedSettings(parsed){
   const duration=String(Math.max(1,clampInteger(parsed.duration,defaultSettings.duration,1,9999)));
   const targetCorrect=String(Math.max(1,clampInteger(parsed.targetCorrect,defaultSettings.targetCorrect,1,9999)));
   const mode=ARITHMETIC_MODES.has(parsed.mode) ? parsed.mode : defaultSettings.mode;
+  const ictExactProbability=String(clampInteger(parsed.ictExactProbability,parseInt(defaultSettings.ictExactProbability,10),0,100));
+  const ictOffByOneProbability=String(clampInteger(parsed.ictOffByOneProbability,parseInt(defaultSettings.ictOffByOneProbability,10),0,100));
+  const ictOtherProbability=String(clampInteger(parsed.ictOtherProbability,parseInt(defaultSettings.ictOtherProbability,10),0,100));
   const voice=resolveVoiceKey(parsed.voice,defaultSettings.voice);
   const beepVolume=String(normalizeBeepVolumeSetting(parsed.beepVolume,defaultSettings.beepVolume));
   const normalizedRangeMin=clampInteger(parsed.numberRangeMin,parseInt(defaultSettings.numberRangeMin,10),1,9);
@@ -235,6 +249,9 @@ function normalizeSavedSettings(parsed){
     duration,
     targetCorrect,
     mode,
+    ictExactProbability,
+    ictOffByOneProbability,
+    ictOtherProbability,
     voice,
     playbackSpeed:String(Math.max(1,Math.min(1.5,parseFloat(parsed.playbackSpeed)||parseFloat(defaultSettings.playbackSpeed)))),
     beepVolume,
@@ -288,14 +305,15 @@ function updateAppViews(){
   appHeader.classList.toggle("hidden",!settingsVisible);
   footerView.classList.toggle("hidden",!settingsVisible);
   startBtn.disabled=sessionState!=="idle";
-  answer.disabled=sessionState!=="active";
+  answer.disabled=sessionState!=="active" || isCctIctMode();
   endSessionBtn.disabled=!sessionVisible;
   if(numberPad){
-    numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+    numberPad.classList.toggle("hidden",isCctIctMode() || !numberPadEnabled || sessionState!=="active");
   }
   if(equationStream){
-    equationStream.classList.toggle("hidden",!equationStreamEnabled || sessionState!=="active");
+    equationStream.classList.toggle("hidden",isCctIctMode() || !equationStreamEnabled || sessionState!=="active");
   }
+  updateModeSpecificUI();
 }
 
 function hideHistoryFilters(){
@@ -356,6 +374,9 @@ function getSettingsFromForm(){
     endCondition:endConditionSelect.value,
     targetCorrect:targetCorrectInput.value,
     mode:modeSelect.value,
+    ictExactProbability:ictExactProbabilityInput.value,
+    ictOffByOneProbability:ictOffByOneProbabilityInput.value,
+    ictOtherProbability:ictOtherProbabilityInput.value,
     voice:resolveVoiceKey(voiceSelect.value || selectedVoice),
     playbackSpeed:playbackSpeedSelect.value,
     beepVolume:beepVolumeSelect.value,
@@ -474,7 +495,7 @@ function applyTrainingPresentationSettings(){
   hideAnswerEnabled=hideAnswerToggle.checked;
   showSessionGoal=showSessionTimerToggle.checked;
   errorFlashEnabled=errorFlashToggle.checked;
-  nBackDepth=clampInteger(nBackDepthSelect.value,1,1,5);
+  nBackDepth=isCctIctMode() ? 1 : clampInteger(nBackDepthSelect.value,1,1,5);
   singleDigitOnly=singleDigitToggle.checked;
   answerRangeEnabled=answerRangeToggle.checked;
   beepType=BEEP_TYPES.has(beepTypeSelect.value) ? beepTypeSelect.value : defaultSettings.beepType;
@@ -494,6 +515,9 @@ function applyTrainingPresentationSettings(){
   targetAccuracy=clampInteger(targetAccuracyInput.value,85,50,99);
   targetAccuracyWindow=clampInteger(targetAccuracyWindowInput.value,20,5,50);
   targetAccuracyStepCap=clampInteger(targetAccuracyStepCapInput.value,40,5,200);
+  ictExactProbability=clampInteger(ictExactProbabilityInput.value,34,0,100);
+  ictOffByOneProbability=clampInteger(ictOffByOneProbabilityInput.value,33,0,100);
+  ictOtherProbability=clampInteger(ictOtherProbabilityInput.value,33,0,100);
   normalizeNumberRangeInputs();
   normalizeAnswerRangeInputs();
   updateDependentOptionStates();
@@ -503,11 +527,17 @@ function applyTrainingPresentationSettings(){
   currentIntervalMetric.classList.toggle("hidden",!showIntervalMetric);
   feedbackElement.classList.toggle("hidden",!showFeedbackIndicators);
   sessionView.classList.toggle("compact-training",compactTraining);
-  visualStimulus.classList.toggle("hidden",presentationMode==="audio");
-  numberPad.classList.toggle("hidden",!numberPadEnabled || sessionState!=="active");
+  if(!isCctIctMode()){
+    visualStimulus.classList.toggle("hidden",presentationMode==="audio");
+    visualStimulus.classList.remove("ict-probe-stimulus");
+  }else if(!activeQuestionState){
+    clearIctProbe();
+  }
+  numberPad.classList.toggle("hidden",isCctIctMode() || !numberPadEnabled || sessionState!=="active");
   numberPad.style.setProperty("--number-pad-columns",String(numberPadColumns));
   numberPad.style.setProperty("--number-pad-scale",String(numberPadSize));
-  equationStream.classList.toggle("hidden",!equationStreamEnabled || sessionState!=="active");
+  equationStream.classList.toggle("hidden",isCctIctMode() || !equationStreamEnabled || sessionState!=="active");
+  updateModeSpecificUI();
 }
 
 function formatPlaybackSpeed(value){
@@ -552,6 +582,9 @@ function applySettings(settings){
   endConditionSelect.value=settings.endCondition;
   targetCorrectInput.value=settings.targetCorrect;
   applyArithmeticMode(settings.mode);
+  ictExactProbabilityInput.value=settings.ictExactProbability;
+  ictOffByOneProbabilityInput.value=settings.ictOffByOneProbability;
+  ictOtherProbabilityInput.value=settings.ictOtherProbability;
   selectedVoice=resolveVoiceKey(settings.voice);
   voiceSelect.value=selectedVoice;
   playbackSpeedSelect.value=Math.max(1,Math.min(1.5,parseFloat(settings.playbackSpeed)||1));
@@ -621,9 +654,9 @@ function handleSettingsChange(){
   buildNumberPad();
   applyAdvancedSettingsVisibility(showAdvancedSettingsToggle.checked);
   applyIntervalTimingVisibility(showIntervalTimingToggle.checked);
-  if(sessionState==="active" && presentationMode!=="visual"){
+  if(sessionState==="active" && (isCctIctMode() || presentationMode!=="visual")){
     void preloadVoice(selectedVoice).then(()=>{
-      if(sessionState==="active" && presentationMode!=="visual"){
+      if(sessionState==="active" && (isCctIctMode() || presentationMode!=="visual")){
         retainOnlyVoiceCache(selectedVoice);
       }
     }).catch(()=>{});
@@ -670,6 +703,96 @@ function applyThresholdPreset(correct,incorrect){
   saveSettings();
 }
 
+function isCctIctMode(mode=arithmeticMode){
+  return mode===ICT_MODE;
+}
+
+function getIctProbeWeights(){
+  const exact=Math.max(0,Number(ictExactProbability)||0);
+  const offByOne=Math.max(0,Number(ictOffByOneProbability)||0);
+  const other=Math.max(0,Number(ictOtherProbability)||0);
+  const total=exact+offByOne+other;
+  if(total<=0){
+    return { exact:34, offByOne:33, other:33, total:100 };
+  }
+  return { exact, offByOne, other, total };
+}
+
+function pickIctProbeType(){
+  const weights=getIctProbeWeights();
+  const roll=Math.random()*weights.total;
+  if(roll<weights.exact) return "exact";
+  if(roll<weights.exact+weights.offByOne) return "offByOne";
+  return "other";
+}
+
+function createIctProbe(expectedSum){
+  const type=pickIctProbeType();
+  if(type==="exact"){
+    return { type, value:expectedSum, expectedResponse:ICT_RESPONSE_LEFT };
+  }
+  if(type==="offByOne"){
+    const candidates=[expectedSum-1,expectedSum+1].filter(value=>value>=1&&value<=19);
+    return { type, value:pickRandom(candidates), expectedResponse:ICT_RESPONSE_RIGHT };
+  }
+  const candidates=[];
+  for(let value=1;value<=19;value++){
+    if(Math.abs(value-expectedSum)>1) candidates.push(value);
+  }
+  return { type, value:pickRandom(candidates), expectedResponse:ICT_RESPONSE_NONE };
+}
+
+function clearIctProbe(){
+  clearTimeout(ictProbeHideTimer);
+  ictProbeHideTimer=0;
+  if(!visualStimulus) return;
+  visualStimulus.textContent="";
+  visualStimulus.classList.add("hidden");
+  visualStimulus.classList.remove("ict-probe-stimulus");
+}
+
+function renderIctProbe(questionState,{ hold=false }={}){
+  clearTimeout(ictProbeHideTimer);
+  if(!questionState || questionState.probeValue==null){
+    clearIctProbe();
+    return;
+  }
+  visualStimulus.textContent=String(questionState.probeValue);
+  visualStimulus.classList.remove("hidden");
+  visualStimulus.classList.add("ict-probe-stimulus");
+  if(hold) return;
+
+  const visibleMs=Math.max(80,Math.min(450,Math.round((questionState.responseInterval||interval)*0.55)));
+  ictProbeHideTimer=setTimeout(()=>{
+    if(activeQuestionState!==questionState) return;
+    visualStimulus.classList.add("hidden");
+  },visibleMs);
+}
+
+function updateIctResponseControls(){
+  if(!ictExactBtn || !ictOffByOneBtn) return;
+  const active=isCctIctMode()
+    && sessionState==="active"
+    && gameRunning
+    && awaitingAnswer
+    && activeQuestionState
+    && !activeQuestionState.resolved;
+  ictExactBtn.disabled=!active;
+  ictOffByOneBtn.disabled=!active;
+}
+
+function updateModeSpecificUI(){
+  const ict=isCctIctMode();
+  const sessionVisible=sessionState==="starting"||sessionState==="active";
+  if(ictModeInfo) ictModeInfo.classList.toggle("hidden",!ict);
+  if(ictProbeMixSection) ictProbeMixSection.classList.toggle("hidden",!ict);
+  if(ictResponsePanel) ictResponsePanel.classList.toggle("hidden",!ict || !sessionVisible);
+  if(answer) answer.classList.toggle("hidden",ict && sessionVisible);
+  if(numberPad) numberPad.classList.toggle("hidden",ict || !numberPadEnabled || sessionState!=="active");
+  if(equationStream) equationStream.classList.toggle("hidden",ict || !equationStreamEnabled || sessionState!=="active");
+  updateIctResponseControls();
+}
+
 function getExpectedAnswer(a,b){
   switch(arithmeticMode){
     case "multiplication":
@@ -678,6 +801,7 @@ function getExpectedAnswer(a,b){
       return a-b;
     case "difference":
       return Math.abs(a-b);
+    case ICT_MODE:
     case "addition":
     default:
       return a+b;
@@ -699,7 +823,7 @@ const HISTORY_FILTER_DEFS={
   },
   mode:{
     defaultValue:"all",
-    values:new Set(["all","addition","multiplication","subtraction","difference"]),
+    values:new Set(["all","addition","multiplication","subtraction","difference",ICT_MODE]),
     matches(session,value){
       return value==="all" || (session.arithmeticMode || defaultSettings.mode)===value;
     }
@@ -836,6 +960,8 @@ function formatArithmeticModeLabel(mode){
       return "Subtraction";
     case "difference":
       return "Difference";
+    case ICT_MODE:
+      return "CCT + ICT";
     case "addition":
     default:
       return "Addition";
@@ -3643,7 +3769,7 @@ function stopStimulusAudioPlayback(exceptAudio=null){
 }
 
 function playStimulusAudio(num){
-  if(presentationMode==="visual") return Promise.resolve(getClockTime());
+  if(presentationMode==="visual" && !isCctIctMode()) return Promise.resolve(getClockTime());
   const voice=resolveVoiceKey(selectedVoice);
   const entry=voiceAudioCache[voice] || voiceAudioCache[Object.keys(voiceAudioCache)[0]];
   const template=entry&&entry.clips&&entry.clips[num];
@@ -3791,6 +3917,7 @@ function isAllowedGeneratedAnswer(a,b){
 }
 
 function getRandomNumber(){
+  if(isCctIctMode()) return 1+Math.floor(Math.random()*9);
   const pool=getConfiguredNumberPool();
   if(!singleDigitOnly && !answerRangeEnabled) return pickRandom(pool);
 
@@ -3806,6 +3933,10 @@ function getRandomNumber(){
 }
 
 function renderVisualStimulus(value){
+  if(isCctIctMode()){
+    clearIctProbe();
+    return;
+  }
   if(presentationMode==="audio"){
     visualStimulus.textContent="";
     visualStimulus.classList.add("hidden");
@@ -4001,26 +4132,42 @@ function resetQuestionStates(){
 function createQuestionState(startedAt){
   const traceIndex=Math.max(0,sessionIntervalTrace.length-1);
   const currentIndex=numbers.length-1;
-  const referenceIndex=currentIndex-nBackDepth;
-  return {
+  const effectiveDepth=isCctIctMode() ? 1 : nBackDepth;
+  const referenceIndex=currentIndex-effectiveDepth;
+  const referenceValue=referenceIndex>=0 ? numbers[referenceIndex] : null;
+  const currentValue=currentIndex>=0 ? numbers[currentIndex] : null;
+  const expectedAnswer=referenceIndex>=0 ? getExpectedAnswer(referenceValue,currentValue) : null;
+  const state={
     startedAt,
     responseInterval:interval,
-    expectedAnswer:referenceIndex>=0 ? getExpectedAnswer(numbers[referenceIndex],numbers[currentIndex]) : null,
-    referenceValue:referenceIndex>=0 ? numbers[referenceIndex] : null,
-    currentValue:currentIndex>=0 ? numbers[currentIndex] : null,
+    expectedAnswer,
+    referenceValue,
+    currentValue,
     operation:arithmeticMode,
     traceIndex,
     resolved:false
   };
+  if(isCctIctMode() && expectedAnswer!==null){
+    const probe=createIctProbe(expectedAnswer);
+    state.probeValue=probe.value;
+    state.ictProbeType=probe.type;
+    state.expectedResponse=probe.expectedResponse;
+  }
+  return state;
 }
 
 function getOperationSymbol(mode){
-  return ({ addition:"+", multiplication:"×", subtraction:"−", difference:"|−|" })[mode] || "+";
+  return ({ addition:"+", multiplication:"×", subtraction:"−", difference:"|−|", [ICT_MODE]:"+" })[mode] || "+";
 }
 
 function getAnswerMatchType(questionState,submittedValue){
   if(!questionState || questionState.resolved || questionState.expectedAnswer===null) return null;
   const normalized=String(submittedValue ?? "").trim();
+  if(questionState.operation===ICT_MODE){
+    if(normalized==="" && questionState.expectedResponse===ICT_RESPONSE_NONE) return "withhold";
+    if(normalized===questionState.expectedResponse) return "ictResponse";
+    return null;
+  }
   if(normalized==="") return null;
   const expected=String(questionState.expectedAnswer);
   if(normalized===expected) return "exact";
@@ -4045,6 +4192,7 @@ function getAnswerMatchType(questionState,submittedValue){
 }
 
 function renderEquationStreamEntry(questionState,submittedValue,isCorrect){
+  if(questionState?.operation===ICT_MODE) return;
   if(!equationStreamEnabled || !equationStream || questionState.referenceValue==null) return;
   const row=document.createElement("div");
   row.className=`equation-entry ${isCorrect ? "is-correct" : "is-wrong"}`;
@@ -4065,7 +4213,9 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
   const resolvedAt=Number.isFinite(Number(finalizedAt)) ? Number(finalizedAt) : getClockTime();
   const answerMatchType=getAnswerMatchType(questionState,submittedValue);
   const isCorrect=answerMatchType!==null;
-  const responseTime=isCorrect
+  const isIct=questionState.operation===ICT_MODE;
+  const hasIctButtonResponse=isIct && String(submittedValue ?? "").trim()!=="";
+  const responseTime=(isCorrect || hasIctButtonResponse)
     ? Math.min(Math.max(0,questionState.startedAt ? resolvedAt-questionState.startedAt : 0),questionState.responseInterval || interval)
     : (questionState.responseInterval || interval);
 
@@ -4074,6 +4224,9 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
 
   if(questionState===activeQuestionState){
     clearPendingAnswer();
+  }
+  if(isIct && hasIctButtonResponse){
+    clearIctProbe();
   }
 
   recordScoredItem(isCorrect,responseTime,questionState.traceIndex);
@@ -4097,7 +4250,26 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
     adjustDifficulty(false);
   }
 
+  updateIctResponseControls();
   return isCorrect;
+}
+
+function submitIctResponse(response){
+  if(!isCctIctMode() || sessionState!=="active" || !gameRunning) return false;
+  if(!awaitingAnswer || !activeQuestionState || activeQuestionState.resolved) return false;
+  if(response!==ICT_RESPONSE_LEFT && response!==ICT_RESPONSE_RIGHT) return false;
+  finalizeQuestionState(activeQuestionState,response,getClockTime());
+  return true;
+}
+
+function handleIctKeydown(event){
+  if(!isCctIctMode() || sessionState!=="active" || !gameRunning || event.repeat) return;
+  let response=null;
+  if(event.key==="ArrowLeft") response=ICT_RESPONSE_LEFT;
+  if(event.key==="ArrowRight") response=ICT_RESPONSE_RIGHT;
+  if(!response) return;
+  event.preventDefault();
+  submitIctResponse(response);
 }
 
 function isCorrectAnswerInput(questionState,submittedValue,finalizedAt){
@@ -4109,12 +4281,14 @@ function isAllowedSessionClick(target){
     || answer.contains(target)
     || target===numberPad
     || numberPad.contains(target)
+    || target===ictResponsePanel
+    || (ictResponsePanel && ictResponsePanel.contains(target))
     || target===endSessionBtn
     || endSessionBtn.contains(target);
 }
 
 function restoreAnswerFocus(){
-  if(sessionState!=="active") return;
+  if(sessionState!=="active" || isCctIctMode()) return;
   if(document.activeElement===answer) return;
   try{
     answer.focus({ preventScroll:true });
@@ -4191,7 +4365,7 @@ async function runStimulus(){
     const num=getRandomNumber();
     let stimulusAt=getClockTime();
 
-    if(presentationMode!=="visual"){
+    if(isCctIctMode() || presentationMode!=="visual"){
       // The displayed interval is true digit-onset to digit-onset timing.
       // A late audio start therefore does not steal response time from the user.
       stimulusAt=await playStimulusAudio(num);
@@ -4200,12 +4374,13 @@ async function runStimulus(){
     if(!gameRunning || runSerial!==stimulusScheduleSerial) return;
 
     const expiredQuestionState=activeQuestionState;
-    const expiredInput=answer.value.trim();
+    const expiredInput=isCctIctMode() ? "" : answer.value.trim();
     let expiredIncorrectPartial=false;
 
     if(expiredQuestionState && !expiredQuestionState.resolved){
       const wasCorrect=finalizeQuestionState(expiredQuestionState,expiredInput,stimulusAt);
-      expiredIncorrectPartial=expiredInput!=="" && !wasCorrect;
+      expiredIncorrectPartial=!isCctIctMode() && expiredInput!=="" && !wasCorrect;
+      if(!gameRunning) return;
     }
 
     // A second digit that was already being typed at the boundary must not leak
@@ -4225,17 +4400,21 @@ async function runStimulus(){
       timestamp:stimulusAt,
       responseTime:null
     });
-    renderVisualStimulus(num);
+    const effectiveDepth=isCctIctMode() ? 1 : nBackDepth;
+    if(!isCctIctMode()) renderVisualStimulus(num);
 
-    if(numbers.length>nBackDepth){
+    if(numbers.length>effectiveDepth){
       awaitingAnswer=true;
       responseStartedAt=stimulusAt;
       responseInterval=interval;
       activeQuestionState=createQuestionState(stimulusAt);
+      if(isCctIctMode()) renderIctProbe(activeQuestionState);
     }else{
       clearPendingAnswer();
       activeQuestionState=null;
+      if(isCctIctMode()) clearIctProbe();
     }
+    updateIctResponseControls();
 
     if(gameRunning){
       scheduleNextStimulusFromLastStimulus();
@@ -4253,12 +4432,14 @@ function updateTimer(){
 }
 
 function hasViableNumberPair(){
+  if(isCctIctMode()) return true;
   if(!singleDigitOnly && !answerRangeEnabled) return true;
   const pool=getConfiguredNumberPool();
   return pool.some(reference=>pool.some(candidate=>isAllowedGeneratedAnswer(reference,candidate)));
 }
 
 function getTaskInstruction(){
+  if(isCctIctMode()) return "Add each spoken digit to the one immediately before it. ← exact sum, → sum ±1, otherwise no response.";
   const operationLabels={
     addition:"Add",
     multiplication:"Multiply",
@@ -4354,11 +4535,12 @@ async function startGame(){
   selectedVoice=resolveVoiceKey(voiceSelect.value);
   voiceSelect.value=selectedVoice;
   playbackSpeed=parseFloat(playbackSpeedSelect.value)||1;
-  if(presentationMode!=="visual"){
+  const requiresAudio=isCctIctMode() || presentationMode!=="visual";
+  if(requiresAudio){
     await preloadVoice(selectedVoice);
   }
   if(sessionState!=="starting") return;
-  if(presentationMode!=="visual"){
+  if(requiresAudio){
     retainOnlyVoiceCache(selectedVoice);
   }
 
@@ -4384,6 +4566,7 @@ async function startGame(){
   currentIntervalStart=showIntervalTiming?getClockTime():0;
 
   answer.value="";
+  clearIctProbe();
   visualStimulus.textContent="";
   equationStream.innerHTML="";
   buildNumberPad();
@@ -4405,7 +4588,8 @@ async function startGame(){
     gameRunning=true;
     setSessionState("active");
     applyTrainingPresentationSettings();
-    answer.focus();
+    if(!isCctIctMode()) answer.focus();
+    updateIctResponseControls();
 
     startStimulusScheduler();
     if(endCondition==="timer") updateTimer();
@@ -4417,21 +4601,30 @@ function stopGame(reason="manual"){
   if(sessionState!=="active"&&sessionState!=="starting") return;
 
   sessionOutcome=reason==="manual" ? "Manually exited" : "Completed";
-  excludeLastQuestionFromCount=awaitingAnswer && numbers.length>nBackDepth && answer.value.trim()==="";
+  const effectiveDepth=isCctIctMode() ? 1 : nBackDepth;
+  const hasUnfinishedQuestion=awaitingAnswer && numbers.length>effectiveDepth && activeQuestionState && !activeQuestionState.resolved;
+  excludeLastQuestionFromCount=!isCctIctMode() && hasUnfinishedQuestion && answer.value.trim()==="";
   sessionEndedAt=Date.now();
   gameRunning=false;
   clearTimeout(timeoutId);
+  clearTimeout(ictProbeHideTimer);
   stopStimulusAudioPlayback();
   void closeBeepAudioContext();
 
-  if(awaitingAnswer && numbers.length>nBackDepth && activeQuestionState){
-    if(answer.value.trim()===""){
+  if(hasUnfinishedQuestion){
+    if(isCctIctMode()){
+      // The final ICT trial is incomplete until its full response window closes.
+      // Do not reward withholding or punish a missing key when a session ends mid-trial.
+      if(sessionIntervalTrace.length) sessionIntervalTrace.pop();
+      if(numbers.length) numbers.pop();
+    }else if(answer.value.trim()===""){
       updateLatestTraceResponseTime(responseInterval||interval,activeQuestionState.traceIndex);
     }else{
       finalizeQuestionState(activeQuestionState,answer.value,getClockTime());
     }
   }
   clearPendingAnswer();
+  updateIctResponseControls();
 
   answer.blur();
   resetQuestionStates();
@@ -4458,7 +4651,7 @@ function stopGame(reason="manual"){
 }
 
 function checkInputLive(event){
-  if(sessionState!=="active") return;
+  if(sessionState!=="active" || isCctIctMode()) return;
   if(isInputRolloverGuardActive()){
     answer.value="";
     return;
@@ -4481,6 +4674,9 @@ const appHeader=document.getElementById("appHeader");
 const currentIntervalMetric=document.getElementById("currentIntervalMetric");
 const sessionGoalMetric=document.getElementById("sessionGoalMetric");
 const visualStimulus=document.getElementById("visualStimulus");
+const ictResponsePanel=document.getElementById("ictResponsePanel");
+const ictExactBtn=document.getElementById("ictExactBtn");
+const ictOffByOneBtn=document.getElementById("ictOffByOneBtn");
 const feedbackElement=document.getElementById("feedback");
 const numberPad=document.getElementById("numberPad");
 const equationStream=document.getElementById("equationStream");
@@ -4495,6 +4691,11 @@ const targetCorrectInput=document.getElementById("targetCorrect");
 const targetCorrectField=document.getElementById("targetCorrectField");
 const modeField=document.getElementById("modeField");
 const modeSelect=document.getElementById("modeSelect");
+const ictModeInfo=document.getElementById("ictModeInfo");
+const ictProbeMixSection=document.getElementById("ictProbeMixSection");
+const ictExactProbabilityInput=document.getElementById("ictExactProbability");
+const ictOffByOneProbabilityInput=document.getElementById("ictOffByOneProbability");
+const ictOtherProbabilityInput=document.getElementById("ictOtherProbability");
 const nBackDepthSelect=document.getElementById("nBackDepth");
 const numberRangeMinInput=document.getElementById("numberRangeMin");
 const numberRangeMaxInput=document.getElementById("numberRangeMax");
@@ -4612,6 +4813,9 @@ const settingsControls=[
   endConditionSelect,
   targetCorrectInput,
   modeSelect,
+  ictExactProbabilityInput,
+  ictOffByOneProbabilityInput,
+  ictOtherProbabilityInput,
   nBackDepthSelect,
   numberRangeMinInput,
   numberRangeMaxInput,
@@ -4799,6 +5003,10 @@ showAdvancedSettingsToggle.addEventListener("change",()=>{
     thresholdInfoBtn.setAttribute("aria-expanded","false");
   }
 });
+ictExactBtn.addEventListener("click",()=>submitIctResponse(ICT_RESPONSE_LEFT));
+ictOffByOneBtn.addEventListener("click",()=>submitIctResponse(ICT_RESPONSE_RIGHT));
+document.addEventListener("keydown",handleIctKeydown);
+
 answer.addEventListener("beforeinput",event=>{
   if(sessionState!=="active" || !isInputRolloverGuardActive()) return;
   if(String(event.inputType||"").startsWith("insert")){
