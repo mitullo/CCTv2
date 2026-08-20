@@ -2886,77 +2886,30 @@ select:focus-visible,
 
 /* CCT + ICT mode */
 .ict-mode-info {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(330px, 1.35fr);
-  gap: 18px;
   align-items: center;
-  min-height: 76px;
-  padding: 14px;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
 }
 
-.ict-mode-copy {
+.ict-key-hints {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-}
-
-.ict-mode-copy > strong {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.ict-mode-copy > small {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-.ict-rule-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.ict-rule-grid > span {
-  display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 48px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--text);
+  flex-wrap: wrap;
 }
 
-.ict-rule-grid > span > span {
-  display: flex;
+.ict-key-hints > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.ict-rule-grid > span strong {
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.ict-rule-grid > span small {
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1.2;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.ict-rule-grid kbd,
+.ict-key-hints kbd,
 .ict-response-button kbd {
   display: inline-flex;
   align-items: center;
@@ -2975,15 +2928,9 @@ select:focus-visible,
   line-height: 1;
 }
 
-@media (max-width: 900px) {
-  .ict-mode-info {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .ict-rule-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 700px) {
+  .ict-key-hints {
+    justify-content: flex-start;
   }
 }
 
@@ -3006,47 +2953,35 @@ select:focus-visible,
 
 .ict-response-panel {
   display: grid;
-  gap: 12px;
   width: 100%;
   margin: 0 0 18px;
 }
 
-.ict-response-rule {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1.5;
-  text-align: center;
-}
-
 .ict-response-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(130px, 0.75fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  align-items: stretch;
-}
-
-.ict-response-button,
-.ict-withhold-card {
-  min-height: 74px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-raised);
+  align-items: center;
 }
 
 .ict-response-button {
   display: flex;
+  min-height: 62px;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
+  box-shadow: none;
+  outline: none;
 }
 
 .ict-response-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
+  background: transparent;
 }
 
 .ict-response-button:active:not(:disabled) {
@@ -3058,53 +2993,36 @@ select:focus-visible,
   opacity: 0.48;
 }
 
-.ict-response-button > span,
-.ict-withhold-card {
+.ict-response-button > span {
   display: grid;
   gap: 3px;
 }
 
-.ict-response-button strong,
-.ict-withhold-card strong {
+.ict-response-button strong {
   color: var(--text);
   font-size: 13px;
   font-weight: 750;
 }
 
-.ict-response-button small,
-.ict-withhold-card small {
+.ict-response-button small {
   color: var(--muted);
   font-size: 11px;
   font-weight: 550;
 }
 
-.ict-withhold-card {
-  place-content: center;
-  padding: 12px;
-  text-align: center;
-  background: var(--surface-soft);
+@media (max-width: 680px) {
+  .ict-response-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-@media (max-width: 680px) {
-  .ict-rule-grid,
-  .ict-response-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .ict-response-button,
-  .ict-withhold-card {
-    min-height: 62px;
-  }
-
-  .ict-response-button:first-child {
-    order: 1;
-  }
-
-  .ict-withhold-card {
-    order: 2;
-  }
-
-  .ict-response-button:last-child {
-    order: 3;
-  }
+.ict-response-button kbd {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
 }

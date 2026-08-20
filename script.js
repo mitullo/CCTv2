@@ -770,8 +770,9 @@ function clearIctProbe(){
   ictProbeHideTimer=0;
   if(!visualStimulus) return;
   visualStimulus.textContent="";
-  visualStimulus.classList.add("hidden");
-  visualStimulus.classList.remove("ict-probe-stimulus");
+  const keepBoxVisible=isCctIctMode() && (sessionState==="starting" || sessionState==="active");
+  visualStimulus.classList.toggle("hidden",!keepBoxVisible);
+  visualStimulus.classList.toggle("ict-probe-stimulus",keepBoxVisible);
 }
 
 function renderIctProbe(questionState,{ hold=false }={}){
@@ -788,7 +789,7 @@ function renderIctProbe(questionState,{ hold=false }={}){
   const visibleMs=Math.max(80,Math.min(450,Math.round((questionState.responseInterval||interval)*0.55)));
   ictProbeHideTimer=setTimeout(()=>{
     if(activeQuestionState!==questionState) return;
-    visualStimulus.classList.add("hidden");
+    visualStimulus.textContent="";
   },visibleMs);
 }
 
@@ -810,6 +811,12 @@ function updateModeSpecificUI(){
   if(ictModeInfo) ictModeInfo.classList.toggle("hidden",!ict);
   if(ictProbeMixSection) ictProbeMixSection.classList.toggle("hidden",!ict);
   if(ictResponsePanel) ictResponsePanel.classList.toggle("hidden",!ict || !sessionVisible);
+  if(ict && sessionVisible){
+    visualStimulus.classList.remove("hidden");
+    visualStimulus.classList.add("ict-probe-stimulus");
+  }else if(!ict){
+    visualStimulus.classList.remove("ict-probe-stimulus");
+  }
   if(answer) answer.classList.toggle("hidden",ict && sessionVisible);
   if(numberPad) numberPad.classList.toggle("hidden",ict || !numberPadEnabled || sessionState!=="active");
   if(equationStream) equationStream.classList.toggle("hidden",ict || !equationStreamEnabled || sessionState!=="active");
