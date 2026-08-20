@@ -2887,42 +2887,73 @@ select:focus-visible,
 /* CCT + ICT mode */
 .ict-mode-info {
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 1.35fr);
+  gap: 18px;
+  align-items: center;
+  min-height: 76px;
   padding: 14px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  background: transparent;
 }
 
-.ict-mode-info strong {
+.ict-mode-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.ict-mode-copy > strong {
   color: var(--text);
   font-size: 13px;
+  font-weight: 700;
 }
 
-.ict-mode-info p {
-  margin: 0;
+.ict-mode-copy > small {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .ict-rule-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
-.ict-rule-grid span {
+.ict-rule-grid > span {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 38px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface-raised);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.ict-rule-grid > span > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ict-rule-grid > span strong {
   color: var(--text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ict-rule-grid > span small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .ict-rule-grid kbd,
@@ -2930,18 +2961,30 @@ select:focus-visible,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
+  flex: 0 0 auto;
+  min-width: 28px;
   min-height: 28px;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 7px;
-  background: var(--surface-soft);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 750;
   line-height: 1;
+}
+
+@media (max-width: 900px) {
+  .ict-mode-info {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .ict-rule-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ict-weight-note {

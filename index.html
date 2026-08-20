@@ -316,10 +316,16 @@
         <section class="settings-section">
           <div class="section-header">Task</div>
           <label class="field mode-field" id="modeField"><span><strong>Mode</strong><small>Classic PASAT arithmetic or the combined CCT + ICT inhibition task.</small></span><select id="modeSelect"><option value="addition">Addition (A + B)</option><option value="multiplication">Multiplication (A × B)</option><option value="subtraction">Subtraction (A − B)</option><option value="difference">Absolute difference |A − B|</option><option value="cctIct">CCT + ICT</option></select></label>
-          <div id="ictModeInfo" class="ict-mode-info hidden">
-            <strong>CCT + ICT rules</strong>
-            <p>Digits 1–9 are always spoken one at a time. Add each new digit to the digit immediately before it — never to a running total. N-back, number-pool, answer-constraint, and typed-answer settings are ignored for this mode.</p>
-            <div class="ict-rule-grid"><span><kbd>←</kbd> Exact sum</span><span><kbd>→</kbd> Sum ±1</span><span><kbd>—</kbd> Anything else: no response</span></div>
+          <div id="ictModeInfo" class="field ict-mode-info hidden">
+            <span>
+              <strong>CCT + ICT controls</strong>
+              <small>Digits 1–9 are spoken one at a time. Add the newest digit only to the immediately previous digit.</small>
+            </span>
+            <div class="ict-key-hints" aria-label="CCT plus ICT controls">
+              <span><kbd>←</kbd><span>Exact sum</span></span>
+              <span><kbd>→</kbd><span>Sum ±1</span></span>
+              <span><kbd>—</kbd><span>No response</span></span>
+            </div>
           </div>
           <label class="field"><span><strong>N-back depth</strong><small>1-back is standard PASAT. Higher values increase memory load. CCT + ICT always uses the immediately previous digit.</small></span><select id="nBackDepth"><option value="1">1-back</option><option value="2">2-back</option><option value="3">3-back</option><option value="4">4-back</option><option value="5">5-back</option></select></label>
         </section>
@@ -433,7 +439,7 @@
           <section class="settings-section">
             <div class="section-header">Error sound</div>
             <label class="toggle-card"><span class="switch"><input type="checkbox" id="beepToggle" checked><span></span></span><span><strong>Beep on error</strong><small>Audible feedback for wrong answers and timeouts.</small></span></label>
-            <label class="field"><span><strong>Sound</strong><small>Each option has a distinct pitch and envelope.</small></span><select id="beepType"><option value="clean">Clean</option><option value="sharp">Sharp</option><option value="low">Low</option><option value="ictReference">CCT + ICT reference</option></select></label>
+            <label class="field"><span><strong>Sound</strong><small>Each option has a distinct pitch and envelope.</small></span><select id="beepType"><option value="clean">Clean</option><option value="sharp">Sharp</option><option value="low">Low</option><option value="cctIct">CCT + ICT</option></select></label>
             <label class="field"><span><strong>Volume</strong><small id="beepVolumeValue">50%</small></span><input type="range" id="beepVolume" min="0" max="100" step="1" value="50"></label>
             <button id="beepTestBtn" class="secondary-button" type="button">Test sound</button>
           </section>

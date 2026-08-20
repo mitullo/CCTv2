@@ -60,7 +60,7 @@ const DEFAULT_BEEP_VOLUME_PERCENT=50;
 const MAX_BEEP_VOLUME_PERCENT=100;
 const MAX_BEEP_GAIN=0.52;
 const PRESENTATION_MODES=new Set(["audio","both","visual"]);
-const BEEP_TYPES=new Set(["clean","sharp","low","ictReference"]);
+const BEEP_TYPES=new Set(["clean","sharp","low","cctIct"]);
 const ADAPTATION_MODES=new Set(["streak","perTrial","target"]);
 const NUMBER_PAD_ORDERS=new Set(["standard","reverse","random"]);
 const THEME_MODES=new Set(["light","cyan","dark"]);
@@ -3880,72 +3880,40 @@ function playBeep(force=false){
     void ctx.resume();
   }
 
-  const gain=getBeepGain();
   const now=ctx.currentTime;
-
-  // CCT + ICT reference-style buzzer: a short, dry digital chirp rather than
-  // the softer exponential single-tone feedback used by the original presets.
-  if(beepType==="ictReference"){
-    const master=ctx.createGain();
-    master.gain.setValueAtTime(Math.max(0.0001,gain),now);
-    master.gain.setValueAtTime(Math.max(0.0001,gain),now+0.055);
-    master.gain.exponentialRampToValueAtTime(0.0001,now+0.125);
-    master.connect(ctx.destination);
-
-    const primary=ctx.createOscillator();
-    const edge=ctx.createOscillator();
-    const edgeGain=ctx.createGain();
-    primary.type="square";
-    primary.frequency.setValueAtTime(520,now);
-    primary.frequency.setValueAtTime(460,now+0.055);
-    edge.type="sine";
-    edge.frequency.setValueAtTime(1040,now);
-    edge.frequency.setValueAtTime(920,now+0.055);
-    edgeGain.gain.setValueAtTime(0.18,now);
-    edgeGain.gain.exponentialRampToValueAtTime(0.0001,now+0.11);
-
-    primary.connect(master);
-    edge.connect(edgeGain);
-    edgeGain.connect(master);
-    primary.start(now);
-    edge.start(now);
-    primary.stop(now+0.13);
-    edge.stop(now+0.115);
-
-    let ended=0;
-    const cleanup=()=>{
-      ended++;
-      if(ended<2) return;
-      try{
-        primary.disconnect();
-        edge.disconnect();
-        edgeGain.disconnect();
-        master.disconnect();
-      }catch(e){}
-    };
-    primary.onended=cleanup;
-    edge.onended=cleanup;
-    return;
-  }
-
   const profiles={
     clean:{ frequency:880, type:"sine", duration:0.16 },
     sharp:{ frequency:1760, type:"square", duration:0.1 },
-    low:{ frequency:240, type:"sawtooth", duration:0.24 }
+    low:{ frequency:240, type:"sawtooth", duration:0.24 },
+    cctIct:{ frequency:820, type:"triangle", duration:0.18, attack:0.008, release:0.03, directVolume:true }
   };
   const profile=profiles[beepType] || profiles.clean;
-  const o=ctx.createOscillator();
-  const g=ctx.createGain();
-  o.type=profile.type;
-  o.frequency.value=profile.frequency;
-  g.gain.setValueAtTime(Math.max(0.0001,gain),now);
-  g.gain.exponentialRampToValueAtTime(0.0001,now+profile.duration);
-  o.connect(g); g.connect(ctx.destination);
-  o.start(now); o.stop(now+profile.duration);
-  o.onended=()=>{
+  const oscillator=ctx.createOscillator();
+  const gain=ctx.createGain();
+  oscillator.type=profile.type;
+  oscillator.frequency.setValueAtTime(profile.frequency,now);
+
+  if(profile.directVolume){
+    // Exact error-beep oscillator/envelope from viratvarunsaxena1st-sketch/CCT-ICT.
+    const volume=normalizeBeepVolumeSetting(beepVolume)/MAX_BEEP_VOLUME_PERCENT;
+    gain.gain.setValueAtTime(0,now);
+    gain.gain.linearRampToValueAtTime(volume,now+profile.attack);
+    gain.gain.setValueAtTime(volume,now+profile.duration-profile.release);
+    gain.gain.linearRampToValueAtTime(0,now+profile.duration);
+  }else{
+    const volume=getBeepGain();
+    gain.gain.setValueAtTime(Math.max(0.0001,volume),now);
+    gain.gain.exponentialRampToValueAtTime(0.0001,now+profile.duration);
+  }
+
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start(now);
+  oscillator.stop(now+profile.duration);
+  oscillator.onended=()=>{
     try{
-      o.disconnect();
-      g.disconnect();
+      oscillator.disconnect();
+      gain.disconnect();
     }catch(e){}
   };
 }
