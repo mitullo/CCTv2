@@ -10,6 +10,7 @@ let stimulusScheduleSerial=0;
 let lastStimulusAt=0;
 let endCondition="timer", targetCorrect=50, correctAnswers=0;
 let arithmeticMode="addition";
+let ictProbeShowTimer=0;
 let ictProbeHideTimer=0;
 let sessionStartedAt=0, sessionEndedAt=0;
 let responseStartedAt=0, responseInterval=0;
@@ -44,6 +45,8 @@ const ICT_MODE="cctIct";
 const ICT_RESPONSE_LEFT="left";
 const ICT_RESPONSE_RIGHT="right";
 const ICT_RESPONSE_NONE="none";
+const ICT_PROBE_SOA_FRACTION=0.15;
+const ICT_PROBE_VISIBLE_FRACTION=0.60;
 const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference",ICT_MODE]);
 const ARITHMETIC_MODE_ALIASES=new Map([
   ["addition","addition"],
@@ -766,7 +769,9 @@ function createIctProbe(expectedSum){
 }
 
 function clearIctProbe(){
+  clearTimeout(ictProbeShowTimer);
   clearTimeout(ictProbeHideTimer);
+  ictProbeShowTimer=0;
   ictProbeHideTimer=0;
   if(!visualStimulus) return;
   visualStimulus.textContent="";
@@ -776,21 +781,46 @@ function clearIctProbe(){
 }
 
 function renderIctProbe(questionState,{ hold=false }={}){
+  clearTimeout(ictProbeShowTimer);
   clearTimeout(ictProbeHideTimer);
+  ictProbeShowTimer=0;
+  ictProbeHideTimer=0;
   if(!questionState || questionState.probeValue==null){
     clearIctProbe();
     return;
   }
-  visualStimulus.textContent=String(questionState.probeValue);
+
+  // Match the reference CCT-ICT cadence. The judgment number runs on its own
+  // clock and is never revealed, hidden, or re-timed by the user's response.
+  const probeInterval=Math.max(1,Number(questionState.responseInterval)||interval);
+  const showDelayMs=Math.max(0,Math.round(probeInterval*ICT_PROBE_SOA_FRACTION));
+  const hideDelayMs=Math.max(showDelayMs,Math.round(probeInterval*(ICT_PROBE_SOA_FRACTION+ICT_PROBE_VISIBLE_FRACTION)));
+
+  questionState.ictProbeShown=false;
+  visualStimulus.textContent="";
   visualStimulus.classList.remove("hidden");
   visualStimulus.classList.add("ict-probe-stimulus");
-  if(hold) return;
 
-  const visibleMs=Math.max(80,Math.min(450,Math.round((questionState.responseInterval||interval)*0.55)));
-  ictProbeHideTimer=setTimeout(()=>{
+  const reveal=()=>{
+    if(activeQuestionState!==questionState || !gameRunning) return;
+    questionState.ictProbeShown=true;
+    visualStimulus.textContent=String(questionState.probeValue);
+    ictProbeShowTimer=0;
+    updateIctResponseControls();
+  };
+  const hide=()=>{
     if(activeQuestionState!==questionState) return;
     visualStimulus.textContent="";
-  },visibleMs);
+    ictProbeHideTimer=0;
+  };
+
+  if(hold){
+    reveal();
+    return;
+  }
+
+  ictProbeShowTimer=setTimeout(reveal,showDelayMs);
+  ictProbeHideTimer=setTimeout(hide,hideDelayMs);
 }
 
 function updateIctResponseControls(){
@@ -800,6 +830,7 @@ function updateIctResponseControls(){
     && gameRunning
     && awaitingAnswer
     && activeQuestionState
+    && activeQuestionState.ictProbeShown
     && !activeQuestionState.resolved;
   ictExactBtn.disabled=!active;
   ictOffByOneBtn.disabled=!active;
@@ -4270,9 +4301,8 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
   if(questionState===activeQuestionState){
     clearPendingAnswer();
   }
-  if(isIct && hasIctButtonResponse){
-    clearIctProbe();
-  }
+  // ICT responses only record/score the response. The probe's visual cadence is
+  // independent and continues until its scheduled hide time.
 
   recordScoredItem(isCorrect,responseTime,questionState.traceIndex);
   renderEquationStreamEntry(questionState,submittedValue,isCorrect);
@@ -4302,6 +4332,7 @@ function finalizeQuestionState(questionState,submittedValue,finalizedAt){
 function submitIctResponse(response){
   if(!isCctIctMode() || sessionState!=="active" || !gameRunning) return false;
   if(!awaitingAnswer || !activeQuestionState || activeQuestionState.resolved) return false;
+  if(!activeQuestionState.ictProbeShown) return false;
   if(response!==ICT_RESPONSE_LEFT && response!==ICT_RESPONSE_RIGHT) return false;
   finalizeQuestionState(activeQuestionState,response,getClockTime());
   return true;
@@ -4652,7 +4683,10 @@ function stopGame(reason="manual"){
   sessionEndedAt=Date.now();
   gameRunning=false;
   clearTimeout(timeoutId);
+  clearTimeout(ictProbeShowTimer);
   clearTimeout(ictProbeHideTimer);
+  ictProbeShowTimer=0;
+  ictProbeHideTimer=0;
   stopStimulusAudioPlayback();
   void closeBeepAudioContext();
 
