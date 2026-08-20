@@ -427,7 +427,7 @@
     interval = Math.max(minimumInterval, Math.min(startingInterval, Number(saved.interval) || startingInterval));
     endCondition = saved.endCondition === "correct" ? "correct" : "timer";
     targetCorrect = Math.max(1, Number(saved.targetCorrect) || 500);
-    arithmeticMode = ARITHMETIC_MODES.has(saved.arithmeticMode) ? saved.arithmeticMode : "addition";
+    arithmeticMode = normalizeArithmeticMode(saved.arithmeticMode);
     selectedVoice = resolveVoiceKey(saved.selectedVoice || voiceSelect.value);
     playbackSpeed = Math.max(1, Math.min(1.5, Number(saved.playbackSpeed) || 1));
     beepEnabled = saved.beepEnabled !== false;
@@ -456,7 +456,7 @@
         expectedAnswer: savedQuestion.expectedAnswer,
         referenceValue: savedQuestion.referenceValue ?? null,
         currentValue: savedQuestion.currentValue ?? null,
-        operation: ARITHMETIC_MODES.has(savedQuestion.operation) ? savedQuestion.operation : arithmeticMode,
+        operation: normalizeArithmeticMode(savedQuestion.operation, arithmeticMode),
         probeValue: savedQuestion.probeValue ?? null,
         ictProbeType: savedQuestion.ictProbeType ?? null,
         expectedResponse: savedQuestion.expectedResponse ?? null,

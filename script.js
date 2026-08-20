@@ -45,12 +45,22 @@ const ICT_RESPONSE_LEFT="left";
 const ICT_RESPONSE_RIGHT="right";
 const ICT_RESPONSE_NONE="none";
 const ARITHMETIC_MODES=new Set(["addition","multiplication","subtraction","difference",ICT_MODE]);
+const ARITHMETIC_MODE_ALIASES=new Map([
+  ["addition","addition"],
+  ["multiplication","multiplication"],
+  ["subtraction","subtraction"],
+  ["difference","difference"],
+  ["cctict",ICT_MODE],
+  ["cct+ict",ICT_MODE],
+  ["cct-ict",ICT_MODE],
+  ["ict",ICT_MODE]
+]);
 const DEFAULT_BEEP_GAIN=0.12;
 const DEFAULT_BEEP_VOLUME_PERCENT=50;
 const MAX_BEEP_VOLUME_PERCENT=100;
 const MAX_BEEP_GAIN=0.52;
 const PRESENTATION_MODES=new Set(["audio","both","visual"]);
-const BEEP_TYPES=new Set(["clean","sharp","low"]);
+const BEEP_TYPES=new Set(["clean","sharp","low","ictReference"]);
 const ADAPTATION_MODES=new Set(["streak","perTrial","target"]);
 const NUMBER_PAD_ORDERS=new Set(["standard","reverse","random"]);
 const THEME_MODES=new Set(["light","cyan","dark"]);
@@ -157,6 +167,14 @@ const AUDIO_START_FALLBACK_MS=2000;
 const VOICE_PRELOAD_TIMEOUT_MS=5000;
 const VOICE_ASSET_VERSION="20260806-russian-female-soft-tail-2";
 
+function normalizeArithmeticMode(value,fallback=defaultSettings.mode){
+  const raw=String(value ?? "").trim();
+  if(ARITHMETIC_MODES.has(raw)) return raw;
+  const alias=ARITHMETIC_MODE_ALIASES.get(raw.toLowerCase());
+  if(alias) return alias;
+  return ARITHMETIC_MODES.has(fallback) ? fallback : "addition";
+}
+
 function clampInteger(value,fallback,min,max){
   const parsed=parseInt(value,10);
   if(Number.isNaN(parsed)) return fallback;
@@ -215,7 +233,7 @@ function normalizeSavedSettings(parsed){
   const incorrectThreshold=String(clampInteger(parsed.incorrectThreshold,defaultSettings.incorrectThreshold,1,10));
   const duration=String(Math.max(1,clampInteger(parsed.duration,defaultSettings.duration,1,9999)));
   const targetCorrect=String(Math.max(1,clampInteger(parsed.targetCorrect,defaultSettings.targetCorrect,1,9999)));
-  const mode=ARITHMETIC_MODES.has(parsed.mode) ? parsed.mode : defaultSettings.mode;
+  const mode=normalizeArithmeticMode(parsed.mode);
   const ictExactProbability=String(clampInteger(parsed.ictExactProbability,parseInt(defaultSettings.ictExactProbability,10),0,100));
   const ictOffByOneProbability=String(clampInteger(parsed.ictOffByOneProbability,parseInt(defaultSettings.ictOffByOneProbability,10),0,100));
   const ictOtherProbability=String(clampInteger(parsed.ictOtherProbability,parseInt(defaultSettings.ictOtherProbability,10),0,100));
@@ -373,7 +391,7 @@ function getSettingsFromForm(){
     duration:durationInput.value,
     endCondition:endConditionSelect.value,
     targetCorrect:targetCorrectInput.value,
-    mode:modeSelect.value,
+    mode:normalizeArithmeticMode(modeSelect.value),
     ictExactProbability:ictExactProbabilityInput.value,
     ictOffByOneProbability:ictOffByOneProbabilityInput.value,
     ictOtherProbability:ictOtherProbabilityInput.value,
@@ -563,8 +581,13 @@ function getIndicatorSlotCount(){
 }
 
 function applyArithmeticMode(mode){
-  arithmeticMode=ARITHMETIC_MODES.has(mode) ? mode : defaultSettings.mode;
-  modeSelect.value=arithmeticMode;
+  arithmeticMode=normalizeArithmeticMode(mode);
+  if(modeSelect){
+    modeSelect.value=arithmeticMode;
+    modeSelect.dataset.currentMode=arithmeticMode;
+  }
+  if(document.body) document.body.dataset.arithmeticMode=arithmeticMode;
+  return arithmeticMode;
 }
 
 function applyAdvancedSettingsVisibility(isVisible){
@@ -3857,6 +3880,54 @@ function playBeep(force=false){
     void ctx.resume();
   }
 
+  const gain=getBeepGain();
+  const now=ctx.currentTime;
+
+  // CCT + ICT reference-style buzzer: a short, dry digital chirp rather than
+  // the softer exponential single-tone feedback used by the original presets.
+  if(beepType==="ictReference"){
+    const master=ctx.createGain();
+    master.gain.setValueAtTime(Math.max(0.0001,gain),now);
+    master.gain.setValueAtTime(Math.max(0.0001,gain),now+0.055);
+    master.gain.exponentialRampToValueAtTime(0.0001,now+0.125);
+    master.connect(ctx.destination);
+
+    const primary=ctx.createOscillator();
+    const edge=ctx.createOscillator();
+    const edgeGain=ctx.createGain();
+    primary.type="square";
+    primary.frequency.setValueAtTime(520,now);
+    primary.frequency.setValueAtTime(460,now+0.055);
+    edge.type="sine";
+    edge.frequency.setValueAtTime(1040,now);
+    edge.frequency.setValueAtTime(920,now+0.055);
+    edgeGain.gain.setValueAtTime(0.18,now);
+    edgeGain.gain.exponentialRampToValueAtTime(0.0001,now+0.11);
+
+    primary.connect(master);
+    edge.connect(edgeGain);
+    edgeGain.connect(master);
+    primary.start(now);
+    edge.start(now);
+    primary.stop(now+0.13);
+    edge.stop(now+0.115);
+
+    let ended=0;
+    const cleanup=()=>{
+      ended++;
+      if(ended<2) return;
+      try{
+        primary.disconnect();
+        edge.disconnect();
+        edgeGain.disconnect();
+        master.disconnect();
+      }catch(e){}
+    };
+    primary.onended=cleanup;
+    edge.onended=cleanup;
+    return;
+  }
+
   const profiles={
     clean:{ frequency:880, type:"sine", duration:0.16 },
     sharp:{ frequency:1760, type:"square", duration:0.1 },
@@ -3865,13 +3936,12 @@ function playBeep(force=false){
   const profile=profiles[beepType] || profiles.clean;
   const o=ctx.createOscillator();
   const g=ctx.createGain();
-  const gain=getBeepGain();
   o.type=profile.type;
   o.frequency.value=profile.frequency;
-  g.gain.setValueAtTime(Math.max(0.0001,gain),ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+profile.duration);
+  g.gain.setValueAtTime(Math.max(0.0001,gain),now);
+  g.gain.exponentialRampToValueAtTime(0.0001,now+profile.duration);
   o.connect(g); g.connect(ctx.destination);
-  o.start(); o.stop(ctx.currentTime+profile.duration);
+  o.start(now); o.stop(now+profile.duration);
   o.onended=()=>{
     try{
       o.disconnect();
@@ -4812,7 +4882,6 @@ const settingsControls=[
   durationInput,
   endConditionSelect,
   targetCorrectInput,
-  modeSelect,
   ictExactProbabilityInput,
   ictOffByOneProbabilityInput,
   ictOtherProbabilityInput,
@@ -5039,6 +5108,15 @@ document.addEventListener("visibilitychange",()=>{
     restoreAnswerFocus();
   }
 });
+const handleModeSelectChange=()=>{
+  applyArithmeticMode(modeSelect.value);
+  applyTrainingPresentationSettings();
+  updateModeSpecificUI();
+  saveSettings();
+};
+modeSelect.addEventListener("input",handleModeSelectChange);
+modeSelect.addEventListener("change",handleModeSelectChange);
+
 settingsControls.forEach(control=>{
   control.addEventListener("input",handleSettingsChange);
   control.addEventListener("change",handleSettingsChange);
@@ -5057,13 +5135,20 @@ document.addEventListener("visibilitychange",()=>{
   }
 });
 async function initializeApp(){
-  await refreshVoiceLibrary();
-  applySettings(readSavedSettings());
+  // Apply saved controls synchronously before any async setup can overwrite a
+  // mode the user has just selected. This also fixes CCT + ICT snapping back
+  // to Addition during startup.
+  const savedSettings=readSavedSettings();
+  applySettings(savedSettings);
   buildNumberPad();
   activateSettingsTab("session");
   setSessionState("idle");
   historyVisible=false;
   updateAppViews();
+
+  await refreshVoiceLibrary();
+  selectedVoice=resolveVoiceKey(voiceSelect.value || savedSettings.voice);
+  voiceSelect.value=selectedVoice;
 }
 
 void initializeApp();
